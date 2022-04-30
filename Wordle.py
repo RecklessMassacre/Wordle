@@ -4,32 +4,14 @@ from tkinter import Tk, Label, Frame, Button, PhotoImage, StringVar
 from random import sample
 
 
-# this shouldn't be here
-class Loader:
-    def __init__(self, filename):
-        self.data = {}
-        self.filename = filename
-        self.init_data()
-
-    def get_voc(self):
-        with open(self.filename, 'r') as f:
-            arr = f.readlines()
-        arr = [item[:-1] for item in arr]
-        return arr
-
-    def init_data(self):
-        self.data['words'] = self.get_voc()  # all 5-letters words list
-
-    def get_data(self):
-        return self.data
-
-
 class Wordle:
-    def __init__(self):
+    def __init__(self, filename: str):
         # Root setup
+        self.window_width: int = 820
+        self.window_length: int = 800
         self.root: Tk = Tk()
         self.root.title("Wordle")
-        self.root.geometry("820x800")
+        self.root.geometry(f"{self.window_width}x{self.window_length}")
 
         # lets root to fill all remaining space, so main frame will always be centered
         self.root.grid_rowconfigure(0, weight=1)
@@ -37,15 +19,13 @@ class Wordle:
 
         # Game data
         # loading words
-        loader = Loader('words_wordle.txt')
-        data = loader.get_data()
-        del loader
+        self.ROW_LENGTH: int = 5
+        self.ROW_AMOUNT: int = 6
+        self.filename: str = filename
+        self.words_list: Optional[list[str]] = self.load_txt(self.filename)  # all 5-letters words
+        self.chosen_word: str = sample(self.words_list, 1)[0].upper()  # word to guess
 
-        self.words_list: list[str] = data['words']  # all 5-letters words
-        del data
-        self.chosen_word: str = sample(self.words_list, 1)[0].upper()  # the word to guess
-
-        self.input_word: list[str] = [str() for _ in range(5)]
+        self.input_word: list[str] = [str() for _ in range(self.ROW_LENGTH)]
         self.cur_row: int = 1
         self.label_pointer: int = 0
         self.game_flag: bool = True
@@ -62,7 +42,7 @@ class Wordle:
         self.message_label_var: StringVar = StringVar()
         self.message_label_var.set('Привет!')
         self.labels_dict: dict[str, Label] = {}
-        self.text_vars: list[StringVar] = [StringVar() for _ in range(30)]
+        self.text_vars: list[StringVar] = [StringVar() for _ in range(self.ROW_LENGTH * self.ROW_AMOUNT)]
         self.init_labels()
 
         # Buttons and its requirements definition and initialization
@@ -80,22 +60,25 @@ class Wordle:
         self.ng_button: Optional[Button] = None
         self.init_buttons()
 
-        # Placing frames
+        # Placing everything
         self.place_frames()
-
-        # Placing labels
         self.place_labels()
-
-        # Placing buttons
         self.place_buttons()
 
+    @staticmethod
+    def load_txt(filename):
+        with open(filename, 'r') as f:
+            arr = f.readlines()
+        arr = [item[:-1] for item in arr]
+        return arr
+
     def init_labels(self):
-        for i in range(6):
-            for j in range(5):
+        for i in range(self.ROW_AMOUNT):
+            for j in range(self.ROW_LENGTH):
                 self.labels_dict[f'lbl{i}{j}'] = Label(
                     self.gfield_frame, font=('Arial bold', 20), background='white',
                     width=60, height=60, image=PhotoImage(), compound='center',
-                    textvariable=self.text_vars[5 * i + j]
+                    textvariable=self.text_vars[self.ROW_LENGTH * i + j]
                 )
 
         self.message_label = Label(
@@ -106,10 +89,10 @@ class Wordle:
     def init_buttons(self):
         for i in range(33):
             letter = self.alphabet[i].upper()
-            # !!!
+
             self.btn_dict[f'btn{i}'] = Button(
                 self.keyboard_frame, text=letter,
-                command=lambda a=letter: self.button_click(a)
+                command=lambda a=letter: self.button_click(a)  # !!!
             )
 
         self.clear_button = Button(self.keyboard_frame, text="Очистить", command=self.clear)
@@ -124,8 +107,8 @@ class Wordle:
         self.keyboard_frame.grid(sticky="NS")
 
     def place_labels(self):
-        for i in range(6):
-            for j in range(5):
+        for i in range(self.ROW_AMOUNT):
+            for j in range(self.ROW_LENGTH):
                 self.labels_dict[f'lbl{i}{j}'].grid(column=j, row=i, padx=10, pady=10)
 
         self.message_label.grid()
@@ -138,6 +121,7 @@ class Wordle:
             32, 24, 18, 13, 9, 19, 29, 1, 31
         ]
         # keyboard frame
+        # one button = 2 colons as default
         for i in range(0, 48, 2):
             self.btn_dict[f'btn{numerical_keyboard[i // 2]}'].grid(
                 padx=10, pady=10, ipadx=10, ipady=10, column=i % 24, row=i // 24, columnspan=2
@@ -153,9 +137,9 @@ class Wordle:
         self.ng_button.grid(ipadx=50, ipady=5)
 
     @staticmethod
-    def _to_dict(l: Union[list, str]) -> dict:
+    def _to_dict(word: Union[list, str]) -> dict:
         s = {}
-        for i, item in enumerate(l):
+        for i, item in enumerate(word):
             if item not in s.keys():
                 s[item] = []
                 s[item].append(i)
@@ -166,8 +150,8 @@ class Wordle:
 
     def alg_cmp(self, a: Union[list, str], b: Union[list, str]) -> list[int]:
         """
-        :param a: iterable, hidden word
-        :param b: iterable, input word
+        :param a: hidden word
+        :param b: input word
         :return: state
         """
         # terrible alg, but working one, i guess...
@@ -175,11 +159,9 @@ class Wordle:
         a_dict = self._to_dict(a)
         b_dict = self._to_dict(b)
         # print(f'a: {a_dict}\nb: {b_dict}')
-
-        # first iteration
-        # looking for all 3s
         d = []
         for key, value in b_dict.items():
+            # looking for all 3s:
             if key in a_dict.keys():
                 for b_item in value:
                     if b_item in a_dict[key]:
@@ -192,13 +174,10 @@ class Wordle:
 
                 d = []
 
-        # second iteration
-        # looking for all 2s
-        for key in b_dict.keys():
-            if not b_dict[key]:
-                continue
-            else:
-                if key in a_dict.keys():
+                # looking for all 2s:
+                if not b_dict[key]:
+                    continue
+                else:
                     a_i = len(a_dict[key])
                     b_i = len(b_dict[key])
                     i = 0
@@ -212,7 +191,7 @@ class Wordle:
         return s
 
     def paint_row(self, states: list):
-        i = self.label_pointer // 5 - 1
+        i = self.label_pointer // self.ROW_LENGTH - 1
         for j in range(len(states)):
             state = states[j]
             color = self.state_to_color_dict[state]
@@ -250,7 +229,7 @@ class Wordle:
                 if state == 3:
                     self.buttons_states[letter] = 3
 
-            # now to reconfigure buttons colors
+            # now to reconfigure button color
             abs_state = self.buttons_states[letter]
             color = self.state_to_color_dict[abs_state]
             btn_name = self.letter_to_button_name_dict[letter]
@@ -277,7 +256,7 @@ class Wordle:
         if self.label_pointer == 0:
             return False
 
-        if self.label_pointer % 5 == 0 and self.cur_row == self.label_pointer // 5:
+        if self.label_pointer % self.ROW_LENGTH == 0 and self.cur_row == self.label_pointer // self.ROW_LENGTH:
             return True
         return False
 
@@ -288,8 +267,8 @@ class Wordle:
         return False
 
     def get_input_word(self):
-        for i in range((self.cur_row - 1) * 5, self.cur_row * 5):
-            self.input_word[i % 5] = self.text_vars[i].get()
+        for i in range((self.cur_row - 1) * self.ROW_LENGTH, self.cur_row * self.ROW_LENGTH):
+            self.input_word[i % self.ROW_LENGTH] = self.text_vars[i].get()
 
     def enter(self):
         if self.game_flag:
@@ -309,30 +288,18 @@ class Wordle:
 
     def clear(self):
         if self.game_flag:
-            length = len(self.input_word)
             # clearing message label
             self.message_label_var.set('')
 
             # Checking if its allowed to erase
             # (label pointer points at label within range + 1 of current row)
-            if (self.cur_row - 1) * length < self.label_pointer <= self.cur_row * length:
+            if (self.cur_row - 1) * self.ROW_LENGTH < self.label_pointer <= self.cur_row * self.ROW_LENGTH:
                 # clearing single letter label
-                current_free = self.current_free_label()
-                if current_free is None:
-                    self.text_vars[-1].set('')
-                    return
-                current = current_free - 1
+                current = self.label_pointer - 1
                 self.text_vars[current].set('')
 
                 # decrementing label pointer
                 self.label_pointer -= 1
-
-    def current_free_label(self):
-        for i, item in enumerate(self.text_vars):
-            if item.get() == '':
-                return i
-
-        return None
 
     def button_click(self, letter: str):
         if self.game_flag:
@@ -342,9 +309,7 @@ class Wordle:
             # checking whether its allowed to type in the next row
             if self.label_pointer < self.cur_row * 5:
                 # putting letter in the label
-                current = self.current_free_label()
-                if current is not None:
-                    self.text_vars[current].set(letter)
+                self.text_vars[self.label_pointer].set(letter)
 
                 # incrementing label pointer
                 self.label_pointer += 1
@@ -380,10 +345,10 @@ class Wordle:
         self.cur_row = 1
         self.buttons_states = dict.fromkeys(self.alphabet, 0)
 
-        # reiniting labels
+        # clear labels
         self.re_init_labels()
 
-        # reiniting buttons
+        # clear buttons colors
         self.re_init_buttons()
 
     def game_over(self):
@@ -393,7 +358,7 @@ class Wordle:
 
 
 def main():
-    game = Wordle()
+    game = Wordle('words_wordle.txt')
     game.run()
 
 
