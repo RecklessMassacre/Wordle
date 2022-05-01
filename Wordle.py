@@ -1,4 +1,3 @@
-# from tkinter import *
 from typing import Optional, Union
 from tkinter import Tk, Label, Frame, Button, PhotoImage, StringVar
 from random import sample
@@ -6,46 +5,47 @@ from random import sample
 
 class Wordle:
     def __init__(self, filename: str):
-        # Root setup
+        # root initialization
         self.window_width: int = 820
         self.window_length: int = 800
         self.root: Tk = Tk()
-        self.root.title("Wordle")
-        self.root.geometry(f"{self.window_width}x{self.window_length}")
 
-        # lets root to fill all remaining space, so main frame will always be centered
-        self.root.grid_rowconfigure(0, weight=1)
-        self.root.grid_columnconfigure(0, weight=1)
-
-        # Game data
-        # loading words
-        self.ROW_LENGTH: int = 5
+        # game data
         self.ROW_AMOUNT: int = 6
+        self.row_length: int = 5
         self.filename: str = filename
-        self.words_list: Optional[list[str]] = self.load_txt(self.filename)  # all 5-letters words
+        self.words_list: Optional[list[str]] = self.load_txt()  # all 5-letters words
         self.chosen_word: str = sample(self.words_list, 1)[0].upper()  # word to guess
-
-        self.input_word: list[str] = [str() for _ in range(self.ROW_LENGTH)]
+        self.input_word: list[str] = [str() for _ in range(self.row_length)]
         self.cur_row: int = 1
         self.label_pointer: int = 0
         self.game_flag: bool = True
+        # each number is alphabet position and each array position is keyboard position
+        self.numerical_keyboard = [
+            10, 23, 20, 11, 5, 14, 3, 25, 26, 8, 22, 27,
+            21, 28, 2, 0, 16, 17, 15, 12, 4, 7, 30, 6,
+            32, 24, 18, 13, 9, 19, 29, 1, 31
+        ]
 
-        # Frames definition
+        # zero size image, used to make labels quadratic
+        self.image = PhotoImage()
+
+        # frames definition
         self.main_frame: Frame = Frame(self.root)
         self.gfield_frame: Frame = Frame(self.main_frame)
         self.menu_frame: Frame = Frame(self.main_frame)
         self.keyboard_frame: Frame = Frame(self.main_frame)
         self.messages_frame: Frame = Frame(self.main_frame)
 
-        # Labels and its requirements definition and initialization
+        # labels and its requirements definition and initialization
         self.message_label: Optional[Label] = None
         self.message_label_var: StringVar = StringVar()
-        self.message_label_var.set('Привет!')
+        self.message_label_var.set('Привет!\nДля ввода букв с клавиатуры нужно перевести раскладку на англ.')
         self.labels_dict: dict[str, Label] = {}
-        self.text_vars: list[StringVar] = [StringVar() for _ in range(self.ROW_LENGTH * self.ROW_AMOUNT)]
+        self.text_vars: list[StringVar] = [StringVar() for _ in range(self.row_length * self.ROW_AMOUNT)]
         self.init_labels()
 
-        # Buttons and its requirements definition and initialization
+        # buttons and its requirements definition and initialization
         self.alphabet: list[str] = [chr(i) for i in range(ord('а'), ord('а') + 6)] + \
                                    [chr(ord('а') + 33)] + \
                                    [chr(i) for i in range(ord('а') + 6, ord('а') + 32)]
@@ -60,25 +60,52 @@ class Wordle:
         self.ng_button: Optional[Button] = None
         self.init_buttons()
 
-        # Placing everything
+        # root setup
+        self.root_setup()
+
+        # placing everything
         self.place_frames()
         self.place_labels()
         self.place_buttons()
 
-    @staticmethod
-    def load_txt(filename):
-        with open(filename, 'r') as f:
+    def load_txt(self):
+        with open(self.filename, 'r') as f:
             arr = f.readlines()
         arr = [item[:-1] for item in arr]
         return arr
 
+    def root_setup(self):
+        self.root.title("Wordle")
+        self.root.minsize(width=self.window_width, height=self.window_length)
+
+        # lets root to fill all remaining space, so main frame will always be centered
+        self.root.grid_rowconfigure(0, weight=1)
+        self.root.grid_columnconfigure(0, weight=1)
+
+        # Allowing typing letters from keyboard
+        eng_keyboard = list("qwertyuiop[]asdfghjkl;'`zxcvbnm,.")
+        for i in range(33):
+            self.root.bind(
+                eng_keyboard[i],
+                lambda event, ru_letter=self.alphabet[self.numerical_keyboard[i]].upper(): self.button_click(ru_letter)
+            )
+        # for Caps Lock
+        for i in range(33):
+            self.root.bind(
+                eng_keyboard[i].upper(),
+                lambda event, ru_letter=self.alphabet[self.numerical_keyboard[i]].upper(): self.button_click(ru_letter)
+            )
+
+        self.root.bind("<BackSpace>", lambda event: self.clear())
+        self.root.bind("<Return>", lambda event: self.enter())
+
     def init_labels(self):
         for i in range(self.ROW_AMOUNT):
-            for j in range(self.ROW_LENGTH):
+            for j in range(self.row_length):
                 self.labels_dict[f'lbl{i}{j}'] = Label(
                     self.gfield_frame, font=('Arial bold', 20), background='white',
-                    width=60, height=60, image=PhotoImage(), compound='center',
-                    textvariable=self.text_vars[self.ROW_LENGTH * i + j]
+                    width=60, height=60, image=self.image, compound='center',
+                    textvariable=self.text_vars[self.row_length * i + j]
                 )
 
         self.message_label = Label(
@@ -108,27 +135,21 @@ class Wordle:
 
     def place_labels(self):
         for i in range(self.ROW_AMOUNT):
-            for j in range(self.ROW_LENGTH):
+            for j in range(self.row_length):
                 self.labels_dict[f'lbl{i}{j}'].grid(column=j, row=i, padx=10, pady=10)
 
         self.message_label.grid()
 
     def place_buttons(self):
-        # each number is alphabet position and each array position is keyboard position
-        numerical_keyboard = [
-            10, 23, 20, 11, 5, 14, 3, 25, 26, 8, 22, 27,
-            21, 28, 2, 0, 16, 17, 15, 12, 4, 7, 30, 6,
-            32, 24, 18, 13, 9, 19, 29, 1, 31
-        ]
         # keyboard frame
         # one button = 2 colons as default
         for i in range(0, 48, 2):
-            self.btn_dict[f'btn{numerical_keyboard[i // 2]}'].grid(
+            self.btn_dict[f'btn{self.numerical_keyboard[i // 2]}'].grid(
                 padx=10, pady=10, ipadx=10, ipady=10, column=i % 24, row=i // 24, columnspan=2
             )
         self.enter_button.grid(padx=10, pady=10, ipadx=10, ipady=10, column=0, row=2, columnspan=3, sticky='W')
         for i in range(50, 68, 2):
-            self.btn_dict[f'btn{numerical_keyboard[i // 2 - 1]}'].grid(
+            self.btn_dict[f'btn{self.numerical_keyboard[i // 2 - 1]}'].grid(
                 padx=10, pady=10, ipadx=10, ipady=10, column=i % 24 + 1, row=i // 24, columnspan=2
             )
         self.clear_button.grid(padx=10, pady=10, ipadx=10, ipady=10, column=21, row=2, columnspan=3, sticky='E')
@@ -154,11 +175,10 @@ class Wordle:
         :param b: input word
         :return: state
         """
-        # terrible alg, but working one, i guess...
+        # terrible alg, but working one...
         s = [1 for _ in range(len(a))]
         a_dict = self._to_dict(a)
         b_dict = self._to_dict(b)
-        # print(f'a: {a_dict}\nb: {b_dict}')
         d = []
         for key, value in b_dict.items():
             # looking for all 3s:
@@ -187,17 +207,14 @@ class Wordle:
                         b_i -= 1
                         a_i -= 1
 
-        # print(f'a: {a_dict}\nb: {b_dict}')
         return s
 
     def paint_row(self, states: list):
-        i = self.label_pointer // self.ROW_LENGTH - 1
+        i = self.label_pointer // self.row_length - 1
         for j in range(len(states)):
             state = states[j]
             color = self.state_to_color_dict[state]
-            self.labels_dict[f'lbl{i}{j}'].configure(
-                background=color, image=PhotoImage(), compound='center'
-            )
+            self.labels_dict[f'lbl{i}{j}'].configure(background=color)
 
     def unlock_next_row(self):
         # increment coefficient for allowing typing in the next row
@@ -256,7 +273,7 @@ class Wordle:
         if self.label_pointer == 0:
             return False
 
-        if self.label_pointer % self.ROW_LENGTH == 0 and self.cur_row == self.label_pointer // self.ROW_LENGTH:
+        if self.label_pointer % self.row_length == 0 and self.cur_row == self.label_pointer // self.row_length:
             return True
         return False
 
@@ -267,8 +284,8 @@ class Wordle:
         return False
 
     def get_input_word(self):
-        for i in range((self.cur_row - 1) * self.ROW_LENGTH, self.cur_row * self.ROW_LENGTH):
-            self.input_word[i % self.ROW_LENGTH] = self.text_vars[i].get()
+        for i in range((self.cur_row - 1) * self.row_length, self.cur_row * self.row_length):
+            self.input_word[i % self.row_length] = self.text_vars[i].get()
 
     def enter(self):
         if self.game_flag:
@@ -293,7 +310,7 @@ class Wordle:
 
             # Checking if its allowed to erase
             # (label pointer points at label within range + 1 of current row)
-            if (self.cur_row - 1) * self.ROW_LENGTH < self.label_pointer <= self.cur_row * self.ROW_LENGTH:
+            if (self.cur_row - 1) * self.row_length < self.label_pointer <= self.cur_row * self.row_length:
                 # clearing single letter label
                 current = self.label_pointer - 1
                 self.text_vars[current].set('')
@@ -327,9 +344,7 @@ class Wordle:
             item.set('')
 
         for item in self.labels_dict.values():
-            item.configure(
-                background='white', image=PhotoImage(), compound='center'
-            )
+            item.configure(background='white')
 
         self.message_label_var.set('')
 
