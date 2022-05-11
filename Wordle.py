@@ -1,20 +1,44 @@
 from typing import Optional, Union
 from tkinter import Tk, Label, Frame, Button, PhotoImage, StringVar
 from random import sample
+from os.path import exists
+import sqlite3
+
+
+class DBHandler:
+    def __init__(self, db_file):
+        if not exists(db_file):
+            raise sqlite3.Error("db doesn't exist")
+
+        self._conn = sqlite3.connect(db_file)
+        self._cur = self._conn.cursor()
+
+    def get_words(self):
+        sql = "SELECT * FROM words"
+        self._cur.execute(sql)
+
+        arr = [item[0] for item in self._cur.fetchall()]
+        return arr
+
+    def close(self):
+        self._conn.close()
 
 
 class Wordle:
-    def __init__(self, filename: str):
+    def __init__(self, filename: str, db_name: str):
+        # sqlite3
+        self.db_handler: DBHandler = DBHandler(db_name)
+
         # root initialization
         self.window_width: int = 820
-        self.window_length: int = 800
+        self.window_length: int = 820
         self.root: Tk = Tk()
 
         # game data
         self.ROW_AMOUNT: int = 6
         self.row_length: int = 5
         self.filename: str = filename
-        self.words_list: Optional[list[str]] = self.load_txt()  # all 5-letters words
+        self.words_list: Optional[list[str]] = self.db_handler.get_words()  # all 5-letters words
         self.chosen_word: str = sample(self.words_list, 1)[0].upper()  # word to guess
         self.input_word: list[str] = [str() for _ in range(self.row_length)]
         self.cur_row: int = 1
@@ -28,24 +52,29 @@ class Wordle:
         ]
 
         # zero size image, used to make labels quadratic
-        self.image = PhotoImage()
+        self.image: PhotoImage = PhotoImage()
 
         # frames definition
-        self.main_frame: Frame = Frame(self.root)
-        self.gfield_frame: Frame = Frame(self.main_frame)
-        self.menu_frame: Frame = Frame(self.main_frame)
-        self.keyboard_frame: Frame = Frame(self.main_frame)
-        self.messages_frame: Frame = Frame(self.main_frame)
+        # self.main_frame: Frame = Frame(self.root)
+        self.gfield_frame: Frame = Frame(self.root)
+        self.menu_frame_left: Frame = Frame(self.root)
+        self.menu_frame_right: Frame = Frame(self.root)
+        self.keyboard_frame: Frame = Frame(self.root)
+        self.messages_frame: Frame = Frame(self.root)
 
         # labels and its requirements definition and initialization
+        # message label
         self.message_label: Optional[Label] = None
         self.message_label_var: StringVar = StringVar()
         self.message_label_var.set('Привет!\nДля ввода букв с клавиатуры нужно перевести раскладку на англ.')
+
+        # game field labels
         self.labels_dict: dict[str, Label] = {}
         self.text_vars: list[StringVar] = [StringVar() for _ in range(self.row_length * self.ROW_AMOUNT)]
         self.init_labels()
 
         # buttons and its requirements definition and initialization
+        self.BASE_COLOR: str = '#f0f0f0'
         self.alphabet: list[str] = [chr(i) for i in range(ord('а'), ord('а') + 6)] + \
                                    [chr(ord('а') + 33)] + \
                                    [chr(i) for i in range(ord('а') + 6, ord('а') + 32)]
@@ -58,6 +87,11 @@ class Wordle:
         self.clear_button: Optional[Button] = None
         self.enter_button: Optional[Button] = None
         self.ng_button: Optional[Button] = None
+        self.stat_button: Optional[Button] = None
+        self.how_to_button: Optional[Button] = None
+        self.settings_button: Optional[Button] = None
+        self.debug: Optional[Button] = None
+
         self.init_buttons()
 
         # root setup
@@ -68,18 +102,11 @@ class Wordle:
         self.place_labels()
         self.place_buttons()
 
-    def load_txt(self):
-        with open(self.filename, 'r') as f:
-            arr = f.readlines()
-        arr = [item[:-1] for item in arr]
-        return arr
-
     def root_setup(self):
         self.root.title("Wordle")
         self.root.minsize(width=self.window_width, height=self.window_length)
 
         # lets root to fill all remaining space, so main frame will always be centered
-        self.root.grid_rowconfigure(0, weight=1)
         self.root.grid_columnconfigure(0, weight=1)
 
         # Allowing typing letters from keyboard
@@ -117,21 +144,51 @@ class Wordle:
         for i in range(33):
             letter = self.alphabet[i].upper()
 
-            self.btn_dict[f'btn{i}'] = Button(
+            self.btn_dict[f"btn{i}"] = Button(
                 self.keyboard_frame, text=letter,
                 command=lambda a=letter: self.button_click(a)  # !!!
             )
 
         self.clear_button = Button(self.keyboard_frame, text="Очистить", command=self.clear)
         self.enter_button = Button(self.keyboard_frame, text="Ввод ", command=self.enter)
-        self.ng_button = Button(self.menu_frame, text="Заново", command=self.new_game)
+
+        # Debug button
+        self.debug = Button(self.menu_frame_right, height=1, width=5, text="asdas", command=self.debug_a)
+
+        # menu frame
+        self.ng_button = Button(self.menu_frame_left, height=1, width=5, text="Заново", command=self.new_game)
+        self.how_to_button = Button(self.menu_frame_left, height=1, width=5, text="Правила", command=self.show_how_to)
+        self.stat_button = Button(self.menu_frame_right, height=1, width=5, text="Статистика", command=self.show_stats)
+        self.settings_button = Button(self.menu_frame_right, height=1, width=5, text="Параметры", command=self.settings)
+
+    def debug_a(self):
+        colors = {}
+        for i in range(self.ROW_AMOUNT):
+            for j in range(self.row_length):
+                colors[f'lbl{i}{j}'] = self.labels_dict[f'lbl{i}{j}'].cget("bg")
+
+        print("lbl states: ", colors)
+        print("btn states: ", self.buttons_states)
+
+    def settings(self):
+        pass
+
+    def show_how_to(self):
+        pass
+
+    def show_stats(self):
+        pass
 
     def place_frames(self):
-        self.main_frame.grid(sticky="NS")
-        self.menu_frame.grid(sticky="NS")
+        self.root.grid_rowconfigure(0, weight=1)
+        self.root.grid_rowconfigure(1, weight=5)
+
+        self.menu_frame_left.grid(row=0, sticky="NW")
+        self.menu_frame_right.grid(row=0, sticky="NE")
+
         self.gfield_frame.grid(sticky="NS")
-        self.messages_frame.grid(sticky="NS")
-        self.keyboard_frame.grid(sticky="NS")
+        self.messages_frame.grid(sticky="S")
+        self.keyboard_frame.grid(sticky="S")
 
     def place_labels(self):
         for i in range(self.ROW_AMOUNT):
@@ -155,7 +212,11 @@ class Wordle:
         self.clear_button.grid(padx=10, pady=10, ipadx=10, ipady=10, column=21, row=2, columnspan=3, sticky='E')
 
         # menu frame
-        self.ng_button.grid(ipadx=50, ipady=5)
+        self.ng_button.grid(ipadx=20, ipady=5, column=0, row=0)
+        self.how_to_button.grid(ipadx=20, ipady=5, column=1, row=0)
+        self.stat_button.grid(ipadx=20, ipady=5, column=0, row=0)
+        self.settings_button.grid(ipadx=20, ipady=5, column=1, row=0)
+        self.debug.grid(ipadx=20, ipady=5, column=2, row=0)
 
     @staticmethod
     def _to_dict(word: Union[list, str]) -> dict:
@@ -214,7 +275,7 @@ class Wordle:
         for j in range(len(states)):
             state = states[j]
             color = self.state_to_color_dict[state]
-            self.labels_dict[f'lbl{i}{j}'].configure(background=color)
+            self.labels_dict[f"lbl{i}{j}"].configure(background=color)
 
     def unlock_next_row(self):
         # increment coefficient for allowing typing in the next row
@@ -350,7 +411,7 @@ class Wordle:
 
     def re_init_buttons(self):
         for item in self.btn_dict.values():
-            item.configure(bg='#f0f0f0')
+            item.configure(bg=self.BASE_COLOR)
 
     def new_game(self):
         # resetting game variables
@@ -373,9 +434,12 @@ class Wordle:
 
 
 def main():
-    game = Wordle('words_wordle.txt')
+    game = Wordle("words_wordle.txt", "data.db")
     game.run()
 
+    # closing connection to db explicitly just in case
+    game.db_handler.close()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()
