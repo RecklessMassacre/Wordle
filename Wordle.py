@@ -41,6 +41,8 @@ class Wordle:
         self.window_length: int = 820
         self.root: Tk = Tk()
 
+        self.dark_theme = False
+
         # game data
         self.ROW_AMOUNT: int = 6
         self.row_length: int = 5
@@ -183,7 +185,12 @@ class Wordle:
         print("btn states: ", self.buttons_states)
 
     def settings(self):
-        pass
+        width, length = 400, 500
+        set_window = Settings(width, length, self.root)
+        self.center_window(set_window, width, length)
+
+        # lock root window
+        set_window.grab_set()
 
     def show_stats(self):
         width, length = 400, 500
@@ -450,11 +457,12 @@ class Wordle:
 class Statistics(Toplevel):
     def __init__(self, width, length, root=None):
         super().__init__(root)
-        self.title("Statistics")
+        self.title("Статистика")
         self.grid_columnconfigure(0, weight=1)
         self.minsize(width=width, height=length)
         self.resizable(False, False)
         self.BASE_COLOR: str = '#f0f0f0'
+        self.BAR_COLOR = "#656565"
 
         # frames
         self.upper_frame = Frame(self)
@@ -501,6 +509,10 @@ class Statistics(Toplevel):
 
         self.place_upper_frame_and_labels()
         self.place_lower_frame_and_labels()
+        self.bind_keys()
+
+    def bind_keys(self):
+        self.bind("<Escape>", lambda event: self.destroy())
 
     def place_upper_frame_and_labels(self):
         # 12 columns, 3 rows
@@ -542,7 +554,7 @@ class Statistics(Toplevel):
         attempts = [i for i in range(1, 7)]
         scores = [2, 3, 4, 1, 5, 6]
 
-        bars = axes.barh(attempts, scores)
+        bars = axes.barh(attempts, scores, color=self.BAR_COLOR)
 
         axes.set_facecolor(self.BASE_COLOR)
 
@@ -561,6 +573,39 @@ class Statistics(Toplevel):
         axes.bar_label(bars)
 
         return figure_canvas.get_tk_widget()
+
+
+class Settings(Toplevel):
+    def __init__(self, width, length, root=None):
+        super().__init__(root)
+        self.root = root
+        self.title("Настройки")
+        self.minsize(width=width, height=length)
+        self.resizable(False, False)
+        self.grid_columnconfigure(0, weight=1)
+        self.BASE_COLOR: str = '#f0f0f0'
+
+        self.frame = Frame(self)
+
+        # switch button images
+        self.on = PhotoImage(file="misc/on.png")
+        self.off = PhotoImage(file="misc/off.png")
+
+        self.dark_theme_lbl = Label(self.frame, text="Темный режим", font=("Arial bold", 15))
+        self.dark_theme_button = Button(self.frame, image=self.on, bd=0, command=self.switch)
+        self.place()
+        self.bind_keys()
+
+    def switch(self):
+        self.dark_theme_button.config(image=self.off)
+
+    def bind_keys(self):
+        self.bind("<Escape>", lambda event: self.destroy())
+
+    def place(self):
+        self.frame.grid(padx=10, pady=10)
+        self.dark_theme_lbl.grid(row=0, column=0, padx=10, pady=10)
+        self.dark_theme_button.grid(row=0, column=1, padx=10, pady=10)
 
 
 def main():
