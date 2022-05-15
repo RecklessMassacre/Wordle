@@ -1,6 +1,6 @@
 import sqlite3
 from typing import Optional, Union
-from tkinter import Tk, Label, Frame, Button, PhotoImage, StringVar, Toplevel
+from tkinter import Tk, Label, Frame, Button, PhotoImage, StringVar, Toplevel, constants as c
 from random import sample
 from os.path import exists
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -31,17 +31,25 @@ class DBHandler:
         self._conn.close()
 
 
-class Wordle:
+class Wordle(Tk):
     def __init__(self, filename: str, db_name: str):
+        super().__init__()
         # sqlite3
         self.db_handler: DBHandler = DBHandler(db_name)
 
         # root initialization
         self.window_width: int = 820
         self.window_length: int = 820
-        self.root: Tk = Tk()
 
-        self.dark_theme = False
+        # colors
+        self.BASE_COLOR: str = '#f0f0f0'
+        self.BASE_LBL_COLOR = 'white'
+        self.DT_LBL_COLOR = '#959595'
+        self.DT_BASE_COLOR = '#2E2E2E'
+        self.DT_LETTERS_COLOR = '#F6F6F6'
+        self.BASE_LETTERS_COLOR = 'black'
+
+        self.dark_theme_fl = False
 
         # game data
         self.ROW_AMOUNT: int = 6
@@ -65,11 +73,11 @@ class Wordle:
 
         # frames definition
         # self.main_frame: Frame = Frame(self.root)
-        self.gfield_frame: Frame = Frame(self.root)
-        self.menu_frame_left: Frame = Frame(self.root)
-        self.menu_frame_right: Frame = Frame(self.root)
-        self.keyboard_frame: Frame = Frame(self.root)
-        self.messages_frame: Frame = Frame(self.root)
+        self.gfield_frame: Frame = Frame(self)
+        self.menu_frame_left: Frame = Frame(self)
+        self.menu_frame_right: Frame = Frame(self)
+        self.keyboard_frame: Frame = Frame(self)
+        self.messages_frame: Frame = Frame(self)
 
         # labels and its requirements definition and initialization
         # message label
@@ -83,7 +91,6 @@ class Wordle:
         self.init_labels()
 
         # buttons and its requirements definition and initialization
-        self.BASE_COLOR: str = '#f0f0f0'
         self.alphabet: list[str] = [chr(i) for i in range(ord('а'), ord('а') + 6)] + \
                                    [chr(ord('а') + 33)] + \
                                    [chr(i) for i in range(ord('а') + 6, ord('а') + 32)]
@@ -110,6 +117,26 @@ class Wordle:
         self.place_labels()
         self.place_buttons()
 
+    def get_current_theme(self):
+        return self.dark_theme_fl
+
+    def change_color_theme(self):
+        if self.dark_theme_fl:
+            self.set_theme(self.BASE_COLOR, self.BASE_LBL_COLOR)
+        else:
+            self.set_theme(self.DT_BASE_COLOR, self.DT_LBL_COLOR)
+
+        self.dark_theme_fl = not self.dark_theme_fl
+
+    def set_theme(self, bg_color, lbl_color):
+        # TODO
+        pass
+
+        """for item in self.labels_dict.values():
+            item.configure(background=lbl_color)
+
+        self.config(bg=bg_color)"""
+
     @staticmethod
     def center_window(window, w_width, w_length):
         x = window.winfo_screenwidth() // 2 - w_width // 2
@@ -117,29 +144,29 @@ class Wordle:
         window.geometry(f"{w_width}x{w_length}+{x}+{y}")
 
     def root_setup(self):
-        self.root.title("Wordle")
-        self.center_window(self.root, self.window_width, self.window_length)
-        self.root.minsize(width=self.window_width, height=self.window_length)
+        self.title("Wordle")
+        self.center_window(self, self.window_width, self.window_length)
+        self.minsize(width=self.window_width, height=self.window_length)
 
         # lets root to fill all remaining space, so main frame will always be centered
-        self.root.grid_columnconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
 
         # Allowing typing letters from keyboard
         eng_keyboard = list("qwertyuiop[]asdfghjkl;'`zxcvbnm,.")
         for i in range(33):
-            self.root.bind(
+            self.bind(
                 eng_keyboard[i],
                 lambda event, ru_letter=self.alphabet[self.numerical_keyboard[i]].upper(): self.button_click(ru_letter)
             )
         # for Caps Lock
         for i in range(33):
-            self.root.bind(
+            self.bind(
                 eng_keyboard[i].upper(),
                 lambda event, ru_letter=self.alphabet[self.numerical_keyboard[i]].upper(): self.button_click(ru_letter)
             )
 
-        self.root.bind("<BackSpace>", lambda event: self.clear())
-        self.root.bind("<Return>", lambda event: self.enter())
+        self.bind("<BackSpace>", lambda event: self.clear())
+        self.bind("<Return>", lambda event: self.enter())
 
     def init_labels(self):
         for i in range(self.ROW_AMOUNT):
@@ -186,7 +213,7 @@ class Wordle:
 
     def settings(self):
         width, length = 400, 500
-        set_window = Settings(width, length, self.root)
+        set_window = Settings(width, length, self)
         self.center_window(set_window, width, length)
 
         # lock root window
@@ -194,15 +221,15 @@ class Wordle:
 
     def show_stats(self):
         width, length = 400, 500
-        st_window = Statistics(width, length, self.root)
+        st_window = Statistics(width, length, self)
         self.center_window(st_window, width, length)
 
         # lock root window
         st_window.grab_set()
 
     def place_frames(self):
-        self.root.grid_rowconfigure(0, weight=1)
-        self.root.grid_rowconfigure(1, weight=5)
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_rowconfigure(1, weight=5)
 
         self.menu_frame_left.grid(row=0, sticky="NW")
         self.menu_frame_right.grid(row=0, sticky="NE")
@@ -414,7 +441,7 @@ class Wordle:
                 self.label_pointer += 1
 
     def run(self):
-        self.root.mainloop()
+        self.mainloop()
 
     def congratulate(self):
         self.message_label_var.set(f'Поздраляю! Загадано было слово: {self.chosen_word}\nДля начала новой игры '
@@ -426,8 +453,7 @@ class Wordle:
             item.set('')
 
         for item in self.labels_dict.values():
-            item.configure(background='white')
-
+            item.configure(background=self.BASE_LBL_COLOR)
         self.message_label_var.set('')
 
     def re_init_buttons(self):
@@ -457,12 +483,19 @@ class Wordle:
 class Statistics(Toplevel):
     def __init__(self, width, length, root=None):
         super().__init__(root)
+        self.root = root
         self.title("Статистика")
         self.grid_columnconfigure(0, weight=1)
         self.minsize(width=width, height=length)
         self.resizable(False, False)
+
+        # colors
         self.BASE_COLOR: str = '#f0f0f0'
-        self.BAR_COLOR = "#656565"
+        self.DT_BASE_COLOR = '#2E2E2E'
+        self.DT_LETTERS_COLOR = '#F6F6F6'
+        self.BASE_LETTERS_COLOR = 'black'
+        self.BASE_BAR_COLOR = '#959595'
+        self.DT_BAR_COLOR = '#656565'
 
         # frames
         self.upper_frame = Frame(self)
@@ -510,6 +543,14 @@ class Statistics(Toplevel):
         self.place_upper_frame_and_labels()
         self.place_lower_frame_and_labels()
         self.bind_keys()
+        self.set_theme()
+
+    def set_theme(self):
+        dark = self.root.get_current_theme()
+        if dark:
+            self.__set_theme(self.DT_BASE_COLOR, self.DT_LETTERS_COLOR)
+        else:
+            self.__set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR)
 
     def bind_keys(self):
         self.bind("<Escape>", lambda event: self.destroy())
@@ -539,9 +580,19 @@ class Statistics(Toplevel):
         self.barchart_canvas.grid(row=1)
 
     def make_barchart(self):
+        dark = self.root.get_current_theme()
+        if dark:
+            bg = self.DT_BASE_COLOR
+            bbc = self.DT_BAR_COLOR
+            txt = self.DT_LETTERS_COLOR
+        else:
+            bg = self.BASE_COLOR
+            bbc = self.BASE_BAR_COLOR
+            txt = self.BASE_LETTERS_COLOR
+
         # the Figure class represents the drawing area on which matplotlib charts will be drawn
         figure = Figure(figsize=(2.5, 2.5), dpi=100)
-        figure.patch.set_facecolor(self.BASE_COLOR)
+        figure.patch.set_facecolor(bg)
 
         # the FigureCanvasTkAgg connects the Figure object with a Tkinter’s Canvas object
         figure_canvas = FigureCanvasTkAgg(figure, self.lower_frame)
@@ -554,9 +605,9 @@ class Statistics(Toplevel):
         attempts = [i for i in range(1, 7)]
         scores = [2, 3, 4, 1, 5, 6]
 
-        bars = axes.barh(attempts, scores, color=self.BAR_COLOR)
+        bars = axes.barh(attempts, scores, color=bbc)
 
-        axes.set_facecolor(self.BASE_COLOR)
+        axes.set_facecolor(bg)
 
         # remove x axis
         axes.get_xaxis().set_visible(False)
@@ -568,11 +619,32 @@ class Statistics(Toplevel):
         axes.spines['left'].set_visible(False)
 
         axes.set_yticks(attempts)
+        axes.tick_params(labelcolor=txt)
 
         # put values on the right of the bars
-        axes.bar_label(bars)
+        axes.bar_label(bars, color=txt)
 
         return figure_canvas.get_tk_widget()
+
+    def __set_theme(self, bg_color, txt_color):
+        self.config(bg=bg_color)
+
+        self.upper_frame.config(bg=bg_color)
+        self.lower_frame.config(bg=bg_color)
+
+        self.upper_head_lbl.config(bg=bg_color, fg=txt_color)
+        self.lower_head_lbl.config(bg=bg_color, fg=txt_color)
+
+        self.g_played_number_lbl.config(bg=bg_color, fg=txt_color)
+        self.g_played_text_lbl.config(bg=bg_color, fg=txt_color)
+        self.winrate_number_lbl.config(bg=bg_color, fg=txt_color)
+        self.winrate_text_lbl.config(bg=bg_color, fg=txt_color)
+        self.cur_streak_number_lbl.config(bg=bg_color, fg=txt_color)
+        self.cur_streak_text_lbl.config(bg=bg_color, fg=txt_color)
+        self.max_streak_number_lbl.config(bg=bg_color, fg=txt_color)
+        self.max_streak_text_lbl.config(bg=bg_color, fg=txt_color)
+
+        self.barchart_canvas.config(bg=bg_color)
 
 
 class Settings(Toplevel):
@@ -583,21 +655,35 @@ class Settings(Toplevel):
         self.minsize(width=width, height=length)
         self.resizable(False, False)
         self.grid_columnconfigure(0, weight=1)
+
+        # colors
         self.BASE_COLOR: str = '#f0f0f0'
+        self.DT_BASE_COLOR = '#2E2E2E'
+        self.DT_LETTERS_COLOR = '#F6F6F6'
+        self.BASE_LETTERS_COLOR = 'black'  # seems like default text color is black
 
         self.frame = Frame(self)
 
         # switch button images
-        self.on = PhotoImage(file="misc/on.png")
+        self.on = PhotoImage(file="misc/on1.png")
         self.off = PhotoImage(file="misc/off.png")
 
         self.dark_theme_lbl = Label(self.frame, text="Темный режим", font=("Arial bold", 15))
-        self.dark_theme_button = Button(self.frame, image=self.on, bd=0, command=self.switch)
+        self.dark_theme_button = Button(
+            self.frame, image=self.off, bd=0, command=self.switch_theme
+        )
+
         self.place()
         self.bind_keys()
 
-    def switch(self):
-        self.dark_theme_button.config(image=self.off)
+    def switch_theme(self):
+        dark = self.root.get_current_theme()
+        if dark:
+            self.set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR, self.off)
+        else:
+            self.set_theme(self.DT_BASE_COLOR, self.DT_LETTERS_COLOR, self.on)
+
+        self.root.change_color_theme()
 
     def bind_keys(self):
         self.bind("<Escape>", lambda event: self.destroy())
@@ -606,6 +692,12 @@ class Settings(Toplevel):
         self.frame.grid(padx=10, pady=10)
         self.dark_theme_lbl.grid(row=0, column=0, padx=10, pady=10)
         self.dark_theme_button.grid(row=0, column=1, padx=10, pady=10)
+
+    def set_theme(self, bg_color, txt_color, img):
+        self.config(bg=bg_color)
+        self.frame.config(bg=bg_color)
+        self.dark_theme_lbl.config(bg=bg_color, fg=txt_color)
+        self.dark_theme_button.config(bg=bg_color, image=img, activebackground=bg_color)
 
 
 def main():
