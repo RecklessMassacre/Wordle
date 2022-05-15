@@ -1,11 +1,18 @@
+import sqlite3
 from typing import Optional, Union
-from tkinter import Tk, Label, Frame, Button, PhotoImage, StringVar
+from tkinter import Tk, Label, Frame, Button, PhotoImage, StringVar, Toplevel
 from random import sample
 from os.path import exists
-import sqlite3
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.figure import Figure
+# seems to work correctly without it
+# import matplotlib
+# matplotlib.use('TkAgg')
 
 
 class DBHandler:
+    # TODO
+
     def __init__(self, db_file):
         if not exists(db_file):
             raise sqlite3.Error("db doesn't exist")
@@ -88,7 +95,6 @@ class Wordle:
         self.enter_button: Optional[Button] = None
         self.ng_button: Optional[Button] = None
         self.stat_button: Optional[Button] = None
-        self.how_to_button: Optional[Button] = None
         self.settings_button: Optional[Button] = None
         self.debug: Optional[Button] = None
 
@@ -102,8 +108,15 @@ class Wordle:
         self.place_labels()
         self.place_buttons()
 
+    @staticmethod
+    def center_window(window, w_width, w_length):
+        x = window.winfo_screenwidth() // 2 - w_width // 2
+        y = window.winfo_screenheight() // 2 - w_length // 2
+        window.geometry(f"{w_width}x{w_length}+{x}+{y}")
+
     def root_setup(self):
         self.root.title("Wordle")
+        self.center_window(self.root, self.window_width, self.window_length)
         self.root.minsize(width=self.window_width, height=self.window_length)
 
         # lets root to fill all remaining space, so main frame will always be centered
@@ -153,11 +166,10 @@ class Wordle:
         self.enter_button = Button(self.keyboard_frame, text="Ввод ", command=self.enter)
 
         # Debug button
-        self.debug = Button(self.menu_frame_right, height=1, width=5, text="asdas", command=self.debug_a)
+        self.debug = Button(self.menu_frame_left, height=1, width=5, text="asdas", command=self.debug_a)
 
         # menu frame
         self.ng_button = Button(self.menu_frame_left, height=1, width=5, text="Заново", command=self.new_game)
-        self.how_to_button = Button(self.menu_frame_left, height=1, width=5, text="Правила", command=self.show_how_to)
         self.stat_button = Button(self.menu_frame_right, height=1, width=5, text="Статистика", command=self.show_stats)
         self.settings_button = Button(self.menu_frame_right, height=1, width=5, text="Параметры", command=self.settings)
 
@@ -173,11 +185,13 @@ class Wordle:
     def settings(self):
         pass
 
-    def show_how_to(self):
-        pass
-
     def show_stats(self):
-        pass
+        width, length = 400, 500
+        st_window = Statistics(width, length, self.root)
+        self.center_window(st_window, width, length)
+
+        # lock root window
+        st_window.grab_set()
 
     def place_frames(self):
         self.root.grid_rowconfigure(0, weight=1)
@@ -201,22 +215,22 @@ class Wordle:
         # keyboard frame
         # one button = 2 colons as default
         for i in range(0, 48, 2):
-            self.btn_dict[f'btn{self.numerical_keyboard[i // 2]}'].grid(
+            self.btn_dict[f"btn{self.numerical_keyboard[i // 2]}"].grid(
                 padx=10, pady=10, ipadx=10, ipady=10, column=i % 24, row=i // 24, columnspan=2
             )
         self.enter_button.grid(padx=10, pady=10, ipadx=10, ipady=10, column=0, row=2, columnspan=3, sticky='W')
+
         for i in range(50, 68, 2):
-            self.btn_dict[f'btn{self.numerical_keyboard[i // 2 - 1]}'].grid(
+            self.btn_dict[f"btn{self.numerical_keyboard[i // 2 - 1]}"].grid(
                 padx=10, pady=10, ipadx=10, ipady=10, column=i % 24 + 1, row=i // 24, columnspan=2
             )
         self.clear_button.grid(padx=10, pady=10, ipadx=10, ipady=10, column=21, row=2, columnspan=3, sticky='E')
 
         # menu frame
         self.ng_button.grid(ipadx=20, ipady=5, column=0, row=0)
-        self.how_to_button.grid(ipadx=20, ipady=5, column=1, row=0)
         self.stat_button.grid(ipadx=20, ipady=5, column=0, row=0)
         self.settings_button.grid(ipadx=20, ipady=5, column=1, row=0)
-        self.debug.grid(ipadx=20, ipady=5, column=2, row=0)
+        self.debug.grid(ipadx=20, ipady=5, column=1, row=0)
 
     @staticmethod
     def _to_dict(word: Union[list, str]) -> dict:
@@ -431,6 +445,122 @@ class Wordle:
         self.message_label_var.set(f'Какая жалость! Загадано было слово: {self.chosen_word}\nДля начала новой игры '
                                    f'нажмите кнопку "Заново".')
         self.game_flag = False
+
+
+class Statistics(Toplevel):
+    def __init__(self, width, length, root=None):
+        super().__init__(root)
+        self.title("Statistics")
+        self.grid_columnconfigure(0, weight=1)
+        self.minsize(width=width, height=length)
+        self.resizable(False, False)
+        self.BASE_COLOR: str = '#f0f0f0'
+
+        # frames
+        self.upper_frame = Frame(self)
+        self.lower_frame = Frame(self)
+
+        # upper frame labels and vars
+        self.upper_head_lbl = Label(self.upper_frame, text="СТАТИСТИКА", font=("Arial bold", 18))
+
+        # 0 - 2 columns
+        self.g_played_number_var = StringVar()
+        self.g_played_number_var.set('0')
+        self.g_played_number_lbl = Label(
+            self.upper_frame, font=("Arial bold", 18), textvariable=self.g_played_number_var
+        )
+        self.g_played_text_lbl = Label(self.upper_frame, text="Сыграно")
+
+        # 3 - 5 columns
+        self.winrate_number_var = StringVar()
+        self.winrate_number_var.set('0')
+        self.winrate_number_lbl = Label(
+            self.upper_frame, font=("Arial bold", 18), textvariable=self.winrate_number_var
+        )
+        self.winrate_text_lbl = Label(self.upper_frame, text="% побед")
+
+        # 6 - 8 columns
+        self.cur_streak_number_var = StringVar()
+        self.cur_streak_number_var.set('0')
+        self.cur_streak_number_lbl = Label(
+            self.upper_frame, font=("Arial bold", 18), textvariable=self.cur_streak_number_var
+        )
+        self.cur_streak_text_lbl = Label(self.upper_frame, text="Тек. серия\nпобед")
+
+        # 9 - 11 columns
+        self.max_streak_number_var = StringVar()
+        self.max_streak_number_var.set('0')
+        self.max_streak_number_lbl = Label(
+            self.upper_frame, font=("Arial bold", 18), textvariable=self.max_streak_number_var
+        )
+        self.max_streak_text_lbl = Label(self.upper_frame, text="Макс.серия\nпобед")
+
+        # lower frame labels and vars
+        self.lower_head_lbl = Label(self.lower_frame, text="РАСПРЕДЕЛЕНИЕ ПОПЫТОК", font=("Arial bold", 18))
+        self.barchart_canvas = self.make_barchart()
+
+        self.place_upper_frame_and_labels()
+        self.place_lower_frame_and_labels()
+
+    def place_upper_frame_and_labels(self):
+        # 12 columns, 3 rows
+        self.upper_frame.grid(row=0, column=0, padx=10, pady=10)
+
+        self.upper_head_lbl.grid(row=0, column=0, columnspan=12, padx=60, pady=15)
+
+        self.g_played_number_lbl.grid(row=1, column=0, columnspan=3, padx=10, pady=3)
+        self.g_played_text_lbl.grid(row=2, column=0, columnspan=3, padx=10)
+
+        self.winrate_number_lbl.grid(row=1, column=3, columnspan=3, padx=10, pady=3)
+        self.winrate_text_lbl.grid(row=2, column=3, columnspan=3, padx=10)
+
+        self.cur_streak_number_lbl.grid(row=1, column=6, columnspan=3, padx=10, pady=3)
+        self.cur_streak_text_lbl.grid(row=2, column=6, columnspan=3, padx=10)
+
+        self.max_streak_number_lbl.grid(row=1, column=9, columnspan=3, padx=10, pady=3)
+        self.max_streak_text_lbl.grid(row=2, column=9, columnspan=3, padx=10)
+
+    def place_lower_frame_and_labels(self):
+        self.lower_frame.grid(row=1, column=0, padx=10, pady=10)
+        self.lower_frame.grid_columnconfigure(0, weight=1)
+        self.lower_head_lbl.grid(row=0, padx=10, pady=10)
+        self.barchart_canvas.grid(row=1)
+
+    def make_barchart(self):
+        # the Figure class represents the drawing area on which matplotlib charts will be drawn
+        figure = Figure(figsize=(2.5, 2.5), dpi=100)
+        figure.patch.set_facecolor(self.BASE_COLOR)
+
+        # the FigureCanvasTkAgg connects the Figure object with a Tkinter’s Canvas object
+        figure_canvas = FigureCanvasTkAgg(figure, self.lower_frame)
+
+        # adding a subplot to the figure and returning the axes of the subplot
+        axes = figure.add_subplot()
+
+        # get data for barchart
+        # TODO
+        attempts = [i for i in range(1, 7)]
+        scores = [2, 3, 4, 1, 5, 6]
+
+        bars = axes.barh(attempts, scores)
+
+        axes.set_facecolor(self.BASE_COLOR)
+
+        # remove x axis
+        axes.get_xaxis().set_visible(False)
+
+        # remove borders
+        axes.spines['top'].set_visible(False)
+        axes.spines['bottom'].set_visible(False)
+        axes.spines['right'].set_visible(False)
+        axes.spines['left'].set_visible(False)
+
+        axes.set_yticks(attempts)
+
+        # put values on the right of the bars
+        axes.bar_label(bars)
+
+        return figure_canvas.get_tk_widget()
 
 
 def main():
