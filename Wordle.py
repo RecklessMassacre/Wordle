@@ -1,6 +1,6 @@
 import sqlite3
 from typing import Optional, Union
-from tkinter import Tk, Label, Frame, Button, PhotoImage, StringVar, Toplevel, constants as c
+from tkinter import Tk, Label, Frame, Button, PhotoImage, StringVar, Toplevel, Canvas
 from random import sample
 from os.path import exists
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -43,13 +43,27 @@ class Wordle(Tk):
 
         # colors
         self.BASE_COLOR: str = '#f0f0f0'
-        self.BASE_LBL_COLOR = 'white'
-        self.DT_LBL_COLOR = '#959595'
-        self.DT_BASE_COLOR = '#2E2E2E'
-        self.DT_LETTERS_COLOR = '#F6F6F6'
-        self.BASE_LETTERS_COLOR = 'black'
+        self.DT_BASE_COLOR: str = '#121212'
 
-        self.dark_theme_fl = False
+        self.BASE_LBL_COLOR: str = 'white'
+        self.DT_LBL_COLOR: str = '#343434'
+
+        self.BASE_BTN_COLOR: str = '#f0f0f0'
+        self.DT_BTN_COLOR: str = 'grey'
+
+        self.BASE_LETTERS_COLOR: str = 'black'
+        self.DT_LETTERS_COLOR: str = '#F6F6F6'
+
+        self.PAINTED_LETTERS_COLOR: str = '#EBEBEB'
+
+        self.YELLOW: str = '#D8AF2E'
+        self.GREEN: str = '#5EA83D'
+
+        self.GREY: str = 'grey'
+        self.DT_GREY: str = '#343434'
+
+        # var for theme change
+        self.dark_theme_fl: bool = False
 
         # game data
         self.ROW_AMOUNT: int = 6
@@ -62,7 +76,7 @@ class Wordle(Tk):
         self.label_pointer: int = 0
         self.game_flag: bool = True
         # each number is alphabet position and each array position is keyboard position
-        self.numerical_keyboard = [
+        self.numerical_keyboard: list[int] = [
             10, 23, 20, 11, 5, 14, 3, 25, 26, 8, 22, 27,
             21, 28, 2, 0, 16, 17, 15, 12, 4, 7, 30, 6,
             32, 24, 18, 13, 9, 19, 29, 1, 31
@@ -94,7 +108,14 @@ class Wordle(Tk):
         self.alphabet: list[str] = [chr(i) for i in range(ord('а'), ord('а') + 6)] + \
                                    [chr(ord('а') + 33)] + \
                                    [chr(i) for i in range(ord('а') + 6, ord('а') + 32)]
-        self.state_to_color_dict: dict[int, str] = {1: 'grey', 2: 'yellow', 3: 'green'}  # state: color
+        # state: color
+        self.state_to_color_dict: dict[int, str] = {
+            0: self.BASE_BTN_COLOR, 1: self.GREY, 2: self.YELLOW, 3: self.GREEN
+        }
+        self.dt_state_to_color_dict: dict[int, str] = {
+            0: self.DT_BTN_COLOR, 1: self.DT_GREY, 2: self.YELLOW, 3: self.GREEN
+        }
+        # there gotta be some simplifications ... or not ...
         self.letter_to_button_name_dict: dict[str, str] = {
             y: f'btn{x}' for x, y in enumerate(self.alphabet)
         }  # letter: button name
@@ -122,20 +143,46 @@ class Wordle(Tk):
 
     def change_color_theme(self):
         if self.dark_theme_fl:
-            self.set_theme(self.BASE_COLOR, self.BASE_LBL_COLOR)
+            self.set_theme(
+                self.BASE_COLOR, self.BASE_LETTERS_COLOR, self.BASE_LBL_COLOR, self.BASE_BTN_COLOR
+            )
         else:
-            self.set_theme(self.DT_BASE_COLOR, self.DT_LBL_COLOR)
+            self.set_theme(
+                self.DT_BASE_COLOR, self.PAINTED_LETTERS_COLOR, self.DT_LBL_COLOR, self.DT_BTN_COLOR
+            )
 
         self.dark_theme_fl = not self.dark_theme_fl
 
-    def set_theme(self, bg_color, lbl_color):
-        # TODO
-        pass
+    def set_theme(self, bg_color, ltr_color, lbl_color, btn_color):
+        for i, item in enumerate(self.labels_dict.values()):
+            if i < self.label_pointer:
+                continue
 
-        """for item in self.labels_dict.values():
-            item.configure(background=lbl_color)
+            item.config(bg=lbl_color, fg=ltr_color)
 
-        self.config(bg=bg_color)"""
+        if self.dark_theme_fl:
+            for letter, state in self.buttons_states.items():
+                btn_name = self.letter_to_button_name_dict[letter]
+                color = self.state_to_color_dict[state]
+                self.btn_dict[btn_name].config(bg=color, fg=ltr_color)
+        else:
+            for letter, state in self.buttons_states.items():
+                btn_name = self.letter_to_button_name_dict[letter]
+                color = self.dt_state_to_color_dict[state]
+                self.btn_dict[btn_name].config(bg=color, fg=ltr_color)
+
+        self.config(bg=bg_color)
+        self.menu_frame_left.config(bg=bg_color)
+        self.menu_frame_right.config(bg=bg_color)
+        self.gfield_frame.config(bg=bg_color)
+        self.keyboard_frame.config(bg=bg_color)
+        self.messages_frame.config(bg=bg_color)
+        self.message_label.config(bg=bg_color, fg=ltr_color)
+        self.enter_button.config(bg=btn_color, fg=ltr_color)
+        self.clear_button.config(bg=btn_color, fg=ltr_color)
+        self.stat_button.config(bg=btn_color, fg=ltr_color)
+        self.settings_button.config(bg=btn_color, fg=ltr_color)
+        self.ng_button.config(bg=btn_color, fg=ltr_color)
 
     @staticmethod
     def center_window(window, w_width, w_length):
@@ -187,7 +234,7 @@ class Wordle(Tk):
             letter = self.alphabet[i].upper()
 
             self.btn_dict[f"btn{i}"] = Button(
-                self.keyboard_frame, text=letter,
+                self.keyboard_frame, text=letter, font=("Arial bold", 11),
                 command=lambda a=letter: self.button_click(a)  # !!!
             )
 
@@ -211,6 +258,9 @@ class Wordle(Tk):
         print("lbl states: ", colors)
         print("btn states: ", self.buttons_states)
 
+    # seems like ctrl+c ctrl+v, but im not sure that i should have
+    # 1 func and pass params to it to create windows rather that
+    # have 2 distinct funcs, one for each window, even though they are similar
     def settings(self):
         width, length = 400, 500
         set_window = Settings(width, length, self)
@@ -323,7 +373,7 @@ class Wordle(Tk):
         for j in range(len(states)):
             state = states[j]
             color = self.state_to_color_dict[state]
-            self.labels_dict[f"lbl{i}{j}"].configure(background=color)
+            self.labels_dict[f"lbl{i}{j}"].configure(background=color, fg=self.PAINTED_LETTERS_COLOR)
 
     def unlock_next_row(self):
         # increment coefficient for allowing typing in the next row
@@ -452,13 +502,28 @@ class Wordle(Tk):
         for item in self.text_vars:
             item.set('')
 
+        if self.dark_theme_fl:
+            bg_color = self.DT_LBL_COLOR
+            ltr_color = self.DT_LETTERS_COLOR
+        else:
+            bg_color = self.BASE_LBL_COLOR
+            ltr_color = self.BASE_LETTERS_COLOR
+
         for item in self.labels_dict.values():
-            item.configure(background=self.BASE_LBL_COLOR)
+            item.config(bg=bg_color, fg=ltr_color)
+
         self.message_label_var.set('')
 
     def re_init_buttons(self):
+        if self.dark_theme_fl:
+            bg_color = self.DT_BTN_COLOR
+            ltr_color = self.DT_LETTERS_COLOR
+        else:
+            bg_color = self.BASE_BTN_COLOR
+            ltr_color = self.BASE_LETTERS_COLOR
+
         for item in self.btn_dict.values():
-            item.configure(bg=self.BASE_COLOR)
+            item.config(bg=bg_color, fg=ltr_color)
 
     def new_game(self):
         # resetting game variables
@@ -481,9 +546,9 @@ class Wordle(Tk):
 
 
 class Statistics(Toplevel):
-    def __init__(self, width, length, root=None):
+    def __init__(self, width: int, length: int, root: Optional[Wordle] = None):
         super().__init__(root)
-        self.root = root
+        self.root: Optional[Wordle] = root
         self.title("Статистика")
         self.grid_columnconfigure(0, weight=1)
         self.minsize(width=width, height=length)
@@ -491,54 +556,56 @@ class Statistics(Toplevel):
 
         # colors
         self.BASE_COLOR: str = '#f0f0f0'
-        self.DT_BASE_COLOR = '#2E2E2E'
-        self.DT_LETTERS_COLOR = '#F6F6F6'
-        self.BASE_LETTERS_COLOR = 'black'
-        self.BASE_BAR_COLOR = '#959595'
-        self.DT_BAR_COLOR = '#656565'
+        self.DT_BASE_COLOR: str = '#121212'
+
+        self.BASE_LETTERS_COLOR: str = 'black'
+        self.DT_LETTERS_COLOR: str = '#F6F6F6'
+
+        self.BASE_BAR_COLOR: str = '#959595'
+        self.DT_BAR_COLOR: str = '#656565'
 
         # frames
-        self.upper_frame = Frame(self)
-        self.lower_frame = Frame(self)
+        self.upper_frame: Frame = Frame(self)
+        self.lower_frame: Frame = Frame(self)
 
         # upper frame labels and vars
-        self.upper_head_lbl = Label(self.upper_frame, text="СТАТИСТИКА", font=("Arial bold", 18))
+        self.upper_head_lbl: Label = Label(self.upper_frame, text="СТАТИСТИКА", font=("Arial bold", 18))
 
         # 0 - 2 columns
-        self.g_played_number_var = StringVar()
+        self.g_played_number_var: StringVar = StringVar()
         self.g_played_number_var.set('0')
-        self.g_played_number_lbl = Label(
+        self.g_played_number_lbl: Label = Label(
             self.upper_frame, font=("Arial bold", 18), textvariable=self.g_played_number_var
         )
-        self.g_played_text_lbl = Label(self.upper_frame, text="Сыграно")
+        self.g_played_text_lbl: Label = Label(self.upper_frame, text="Сыграно")
 
         # 3 - 5 columns
-        self.winrate_number_var = StringVar()
+        self.winrate_number_var: StringVar = StringVar()
         self.winrate_number_var.set('0')
-        self.winrate_number_lbl = Label(
+        self.winrate_number_lbl: Label = Label(
             self.upper_frame, font=("Arial bold", 18), textvariable=self.winrate_number_var
         )
-        self.winrate_text_lbl = Label(self.upper_frame, text="% побед")
+        self.winrate_text_lbl: Label = Label(self.upper_frame, text="% побед")
 
         # 6 - 8 columns
-        self.cur_streak_number_var = StringVar()
+        self.cur_streak_number_var: StringVar = StringVar()
         self.cur_streak_number_var.set('0')
-        self.cur_streak_number_lbl = Label(
+        self.cur_streak_number_lbl: Label = Label(
             self.upper_frame, font=("Arial bold", 18), textvariable=self.cur_streak_number_var
         )
-        self.cur_streak_text_lbl = Label(self.upper_frame, text="Тек. серия\nпобед")
+        self.cur_streak_text_lbl: Label = Label(self.upper_frame, text="Тек. серия\nпобед")
 
         # 9 - 11 columns
-        self.max_streak_number_var = StringVar()
+        self.max_streak_number_var: StringVar = StringVar()
         self.max_streak_number_var.set('0')
-        self.max_streak_number_lbl = Label(
+        self.max_streak_number_lbl: Label = Label(
             self.upper_frame, font=("Arial bold", 18), textvariable=self.max_streak_number_var
         )
-        self.max_streak_text_lbl = Label(self.upper_frame, text="Макс.серия\nпобед")
+        self.max_streak_text_lbl: Label = Label(self.upper_frame, text="Макс.серия\nпобед")
 
         # lower frame labels and vars
-        self.lower_head_lbl = Label(self.lower_frame, text="РАСПРЕДЕЛЕНИЕ ПОПЫТОК", font=("Arial bold", 18))
-        self.barchart_canvas = self.make_barchart()
+        self.lower_head_lbl: Label = Label(self.lower_frame, text="РАСПРЕДЕЛЕНИЕ ПОПЫТОК", font=("Arial bold", 18))
+        self.barchart_canvas: Canvas = self.make_barchart()
 
         self.place_upper_frame_and_labels()
         self.place_lower_frame_and_labels()
@@ -579,7 +646,8 @@ class Statistics(Toplevel):
         self.lower_head_lbl.grid(row=0, padx=10, pady=10)
         self.barchart_canvas.grid(row=1)
 
-    def make_barchart(self):
+    def make_barchart(self) -> Canvas:
+        # checking current theme
         dark = self.root.get_current_theme()
         if dark:
             bg = self.DT_BASE_COLOR
@@ -600,14 +668,15 @@ class Statistics(Toplevel):
         # adding a subplot to the figure and returning the axes of the subplot
         axes = figure.add_subplot()
 
-        # get data for barchart
         # TODO
+        # get REAL data for barchart
         attempts = [i for i in range(1, 7)]
         scores = [2, 3, 4, 1, 5, 6]
 
         bars = axes.barh(attempts, scores, color=bbc)
 
         axes.set_facecolor(bg)
+        axes.invert_yaxis()
 
         # remove x axis
         axes.get_xaxis().set_visible(False)
@@ -626,7 +695,7 @@ class Statistics(Toplevel):
 
         return figure_canvas.get_tk_widget()
 
-    def __set_theme(self, bg_color, txt_color):
+    def __set_theme(self, bg_color: str, txt_color: str):
         self.config(bg=bg_color)
 
         self.upper_frame.config(bg=bg_color)
@@ -648,9 +717,9 @@ class Statistics(Toplevel):
 
 
 class Settings(Toplevel):
-    def __init__(self, width, length, root=None):
+    def __init__(self, width: int, length: int, root: Optional[Wordle] = None):
         super().__init__(root)
-        self.root = root
+        self.root: Optional[Wordle] = root
         self.title("Настройки")
         self.minsize(width=width, height=length)
         self.resizable(False, False)
@@ -658,23 +727,32 @@ class Settings(Toplevel):
 
         # colors
         self.BASE_COLOR: str = '#f0f0f0'
-        self.DT_BASE_COLOR = '#2E2E2E'
-        self.DT_LETTERS_COLOR = '#F6F6F6'
-        self.BASE_LETTERS_COLOR = 'black'  # seems like default text color is black
+        self.DT_BASE_COLOR: str = '#121212'
 
-        self.frame = Frame(self)
+        self.BASE_LETTERS_COLOR: str = 'black'  # seems like default text color is black
+        self.DT_LETTERS_COLOR: str = '#F6F6F6'
+
+        self.frame: Frame = Frame(self)
 
         # switch button images
-        self.on = PhotoImage(file="misc/on1.png")
-        self.off = PhotoImage(file="misc/off.png")
+        self.on: PhotoImage = PhotoImage(file="misc/on1.png")
+        self.off: PhotoImage = PhotoImage(file="misc/off.png")
 
-        self.dark_theme_lbl = Label(self.frame, text="Темный режим", font=("Arial bold", 15))
+        self.dark_theme_lbl: Label = Label(self.frame, text="Темный режим", font=("Arial bold", 15))
         self.dark_theme_button = Button(
             self.frame, image=self.off, bd=0, command=self.switch_theme
         )
 
         self.place()
         self.bind_keys()
+        self.__set_theme()
+
+    def __set_theme(self):
+        dark = self.root.get_current_theme()
+        if dark:
+            self.set_theme(self.DT_BASE_COLOR, self.DT_LETTERS_COLOR, self.on)
+        else:
+            self.set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR, self.off)
 
     def switch_theme(self):
         dark = self.root.get_current_theme()
@@ -693,7 +771,7 @@ class Settings(Toplevel):
         self.dark_theme_lbl.grid(row=0, column=0, padx=10, pady=10)
         self.dark_theme_button.grid(row=0, column=1, padx=10, pady=10)
 
-    def set_theme(self, bg_color, txt_color, img):
+    def set_theme(self, bg_color: str, txt_color: str, img: PhotoImage):
         self.config(bg=bg_color)
         self.frame.config(bg=bg_color)
         self.dark_theme_lbl.config(bg=bg_color, fg=txt_color)
