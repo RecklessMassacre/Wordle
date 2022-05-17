@@ -1,28 +1,118 @@
 import sqlite3
 from typing import Optional, Union
-from tkinter import Tk, Label, Frame, Button, PhotoImage, StringVar, Toplevel, Canvas
+from tkinter import Tk, Label, Frame, Button, PhotoImage, StringVar, Toplevel, Canvas, Scrollbar
+import tkinter.constants as c
 from random import sample
 from os.path import exists
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.figure import Figure
-# seems to work correctly without it
-# import matplotlib
-# matplotlib.use('TkAgg')
 
 
 class DBHandler:
-    # TODO
-
+    # since im singe user of the db there is no need to .commit()
     def __init__(self, db_file):
         if not exists(db_file):
-            raise sqlite3.Error("db doesn't exist")
+            raise sqlite3.Error("Get that fucking db, all words are inside!")
 
         self._conn = sqlite3.connect(db_file)
         self._cur = self._conn.cursor()
+        self._on_connect()
+
+        # TODO
+        self.f = False
+
+        if not self.check_db_init():
+            self._setup_empty_db()
+
+    # errors cannot occur ... so fuck try except
+    def check_db_init(self):
+        self._cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user'")
+        arr = [item for item in self._cur.fetchall()]
+
+        return True if arr else False
+
+    def _setup_empty_db(self):
+        self._cur.execute(
+            "CREATE TABLE IF NOT EXISTS user (id INTEGER, nick_name TEXT NOT NULL,"
+            "is_current INTEGER, PRIMARY KEY (id))"
+        )
+        self._cur.execute(
+            "CREATE TABLE IF NOT EXISTS stats (user_id INTEGER, played INTEGER, games_won INTEGER,"
+            "games_lost INTEGER, current_streak INTEGER, max_streak INTEGER, FOREIGN KEY (user_id)"
+            "REFERENCES user(id) ON DELETE CASCADE ON UPDATE NO ACTION)"
+        )
+        self._cur.execute(
+            "CREATE TABLE IF NOT EXISTS distribution (user_id INTEGER, first_try INTEGER, second_try INTEGER,"
+            "third_try INTEGER, fourth_try INTEGER, fifth_try INTEGER, sixth_try INTEGER, FOREIGN KEY (user_id)"
+            "REFERENCES user(id) ON DELETE CASCADE ON UPDATE NO ACTION)"
+        )
+        self._cur.execute(
+            "CREATE TABLE IF NOT EXISTS keyboard_state (user_id INTEGER, k_state_string TEXT, FOREIGN KEY (user_id)"
+            "REFERENCES user(id) ON DELETE CASCADE ON UPDATE NO ACTION)"
+        )
+        self._cur.execute(
+            "CREATE TABLE IF NOT EXISTS labels_state (user_id INTEGER, l_state_string TEXT, FOREIGN KEY (user_id)"
+            "REFERENCES user(id) ON DELETE CASCADE ON UPDATE NO ACTION)"
+        )
+        self._cur.execute(
+            "CREATE VIEW get_user AS SELECT u.nick_name, s.played, s.games_won, s.games_lost, s.current_streak,"
+            "s.max_streak,d.first_try, d.second_try, d.third_try, d.fourth_try, d.fifth_try, d.sixth_try,"
+            "ks.k_state_string, ls.l_state_string FROM user u LEFT JOIN stats s on u.id = s.user_id"
+            "LEFT JOIN distribution d on u.id = d.user_id LEFT JOIN keyboard_state ks on u.id = ks.user_id"
+            "LEFT JOIN labels_state ls on u.id = ls.user_id;"
+        )
+
+    def _on_connect(self):
+        self._cur.execute("PRAGMA foreign_keys = ON")
+
+    def get_current_user(self):
+        # TODO
+        if self.f:
+            self._cur.execute("SELECT * FROM get_user WHERE is_current = 1")
+            arr = self._cur.fetchall()[0]
+        else:
+            arr = []
+
+        return arr
+
+    def user_exists(self, nick_name):
+        self._cur.execute("SELECT nick_name FROM user WHERE nick_name = ?", (nick_name,))
+
+        arr = [item for item in self._cur.fetchall()]
+
+        return True if arr else False
+
+    def delete_user(self, nick_name):
+        self._cur.execute("DELETE FROM user WHERE nick_name = ?", (nick_name,))
+
+        return True
+
+    def add_user(self, nick_name):
+        if self.user_exists(nick_name):
+            return False
+
+        self._cur.execute("INSERT INTO user (nick_name, is_current) VALUES (?, 0)", (nick_name,))
+        self._cur.execute(
+            "INSERT INTO stats(user_id, played, games_won, games_lost, current_streak, max_streak)"
+            "VALUES (last_insert_rowid(), 0, 0, 0, 0, 0)"
+        )
+        self._cur.execute(
+            "INSERT INTO distribution(user_id, first_try, second_try, third_try, fourth_try, fifth_try, sixth_try)"
+            "VALUES (last_insert_rowid(), 0, 0, 0, 0, 0, 0)"
+        )
+        self._cur.execute('INSERT INTO keyboard_state(user_id, k_state_string) VALUES (last_insert_rowid(), "")')
+        self._cur.execute('INSERT INTO labels_state(user_id, l_state_string) VALUES (last_insert_rowid(), "")')
+
+        return True
+
+    def get_users(self):
+        self._cur.execute("SELECT * FROM user")
+
+        arr = self._cur.fetchall()
+        return arr
 
     def get_words(self):
-        sql = "SELECT * FROM words"
-        self._cur.execute(sql)
+        self._cur.execute("SELECT * FROM words")
 
         arr = [item[0] for item in self._cur.fetchall()]
         return arr
@@ -32,7 +122,8 @@ class DBHandler:
 
 
 class Wordle(Tk):
-    def __init__(self, filename: str, db_name: str):
+    # architecture is shit
+    def __init__(self, db_name: str):
         super().__init__()
         # sqlite3
         self.db_handler: DBHandler = DBHandler(db_name)
@@ -68,7 +159,6 @@ class Wordle(Tk):
         # game data
         self.ROW_AMOUNT: int = 6
         self.row_length: int = 5
-        self.filename: str = filename
         self.words_list: Optional[list[str]] = self.db_handler.get_words()  # all 5-letters words
         self.chosen_word: str = sample(self.words_list, 1)[0].upper()  # word to guess
         self.input_word: list[str] = [str() for _ in range(self.row_length)]
@@ -97,7 +187,10 @@ class Wordle(Tk):
         # message label
         self.message_label: Optional[Label] = None
         self.message_label_var: StringVar = StringVar()
-        self.message_label_var.set('Привет!\nДля ввода букв с клавиатуры нужно перевести раскладку на англ.')
+        self.message_label_var.set(
+            'Привет! Для ввода букв с клавиатуры нужно перевести раскладку на англ.\n'
+            'Для ведения статистики нужно создать профиль'
+        )
 
         # game field labels
         self.labels_dict: dict[str, Label] = {}
@@ -115,7 +208,6 @@ class Wordle(Tk):
         self.dt_state_to_color_dict: dict[int, str] = {
             0: self.DT_BTN_COLOR, 1: self.DT_GREY, 2: self.YELLOW, 3: self.GREEN
         }
-        # there gotta be some simplifications ... or not ...
         self.letter_to_button_name_dict: dict[str, str] = {
             y: f'btn{x}' for x, y in enumerate(self.alphabet)
         }  # letter: button name
@@ -126,7 +218,7 @@ class Wordle(Tk):
         self.ng_button: Optional[Button] = None
         self.stat_button: Optional[Button] = None
         self.settings_button: Optional[Button] = None
-        self.debug: Optional[Button] = None
+        self.profile_button: Optional[Button] = None
 
         self.init_buttons()
 
@@ -137,6 +229,16 @@ class Wordle(Tk):
         self.place_frames()
         self.place_labels()
         self.place_buttons()
+
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def on_closing(self):
+        # TODO
+        # save curr data to db
+
+        # closing connection to db explicitly just in case
+        self.db_handler.close()
+        self.destroy()
 
     def get_current_theme(self):
         return self.dark_theme_fl
@@ -177,12 +279,14 @@ class Wordle(Tk):
         self.gfield_frame.config(bg=bg_color)
         self.keyboard_frame.config(bg=bg_color)
         self.messages_frame.config(bg=bg_color)
+
         self.message_label.config(bg=bg_color, fg=ltr_color)
         self.enter_button.config(bg=btn_color, fg=ltr_color)
         self.clear_button.config(bg=btn_color, fg=ltr_color)
         self.stat_button.config(bg=btn_color, fg=ltr_color)
         self.settings_button.config(bg=btn_color, fg=ltr_color)
         self.ng_button.config(bg=btn_color, fg=ltr_color)
+        self.profile_button.config(bg=btn_color, fg=ltr_color)
 
     @staticmethod
     def center_window(window, w_width, w_length):
@@ -238,18 +342,27 @@ class Wordle(Tk):
                 command=lambda a=letter: self.button_click(a)  # !!!
             )
 
-        self.clear_button = Button(self.keyboard_frame, text="Очистить", command=self.clear)
-        self.enter_button = Button(self.keyboard_frame, text="Ввод ", command=self.enter)
-
-        # Debug button
-        self.debug = Button(self.menu_frame_left, height=1, width=5, text="asdas", command=self.debug_a)
+        self.clear_button = Button(self.keyboard_frame, text="Очистить", font=("Arial bold", 11), command=self.clear)
+        self.enter_button = Button(self.keyboard_frame, text="Ввод ", font=("Arial bold", 11), command=self.enter)
 
         # menu frame
+        self.profile_button = Button(self.menu_frame_left, height=1, width=5, text="Профили", command=self.profile)
         self.ng_button = Button(self.menu_frame_left, height=1, width=5, text="Заново", command=self.new_game)
         self.stat_button = Button(self.menu_frame_right, height=1, width=5, text="Статистика", command=self.show_stats)
         self.settings_button = Button(self.menu_frame_right, height=1, width=5, text="Параметры", command=self.settings)
 
-    def debug_a(self):
+    # seems like ctrl+c ctrl+v, but im not sure that i should have
+    # 1 func and pass params to it to create windows rather that
+    # have several distinct funcs, one for each window, even though they are similar
+    def profile(self):
+        width, length = 400, 500
+        p_window = Profiles(width, length, self)
+        self.center_window(p_window, width, length)
+
+        # lock root window
+        p_window.grab_set()
+
+        # debug shit
         colors = {}
         for i in range(self.ROW_AMOUNT):
             for j in range(self.row_length):
@@ -258,9 +371,6 @@ class Wordle(Tk):
         print("lbl states: ", colors)
         print("btn states: ", self.buttons_states)
 
-    # seems like ctrl+c ctrl+v, but im not sure that i should have
-    # 1 func and pass params to it to create windows rather that
-    # have 2 distinct funcs, one for each window, even though they are similar
     def settings(self):
         width, length = 400, 500
         set_window = Settings(width, length, self)
@@ -314,7 +424,7 @@ class Wordle(Tk):
         self.ng_button.grid(ipadx=20, ipady=5, column=0, row=0)
         self.stat_button.grid(ipadx=20, ipady=5, column=0, row=0)
         self.settings_button.grid(ipadx=20, ipady=5, column=1, row=0)
-        self.debug.grid(ipadx=20, ipady=5, column=1, row=0)
+        self.profile_button.grid(ipadx=20, ipady=5, column=1, row=0)
 
     @staticmethod
     def _to_dict(word: Union[list, str]) -> dict:
@@ -334,7 +444,7 @@ class Wordle(Tk):
         :param b: input word
         :return: state
         """
-        # terrible alg, but working one...
+        # that shit works
         s = [1 for _ in range(len(a))]
         a_dict = self._to_dict(a)
         b_dict = self._to_dict(b)
@@ -554,6 +664,8 @@ class Statistics(Toplevel):
         self.minsize(width=width, height=length)
         self.resizable(False, False)
 
+        self.data: dict = self.get_data()
+
         # colors
         self.BASE_COLOR: str = '#f0f0f0'
         self.DT_BASE_COLOR: str = '#121212'
@@ -573,7 +685,7 @@ class Statistics(Toplevel):
 
         # 0 - 2 columns
         self.g_played_number_var: StringVar = StringVar()
-        self.g_played_number_var.set('0')
+        self.g_played_number_var.set(f"{self.data['played']}")
         self.g_played_number_lbl: Label = Label(
             self.upper_frame, font=("Arial bold", 18), textvariable=self.g_played_number_var
         )
@@ -581,7 +693,9 @@ class Statistics(Toplevel):
 
         # 3 - 5 columns
         self.winrate_number_var: StringVar = StringVar()
-        self.winrate_number_var.set('0')
+        self.winrate_number_var.set(
+            f"{round((self.data['games_won'] / self.data['played']) * 100)}"
+        )
         self.winrate_number_lbl: Label = Label(
             self.upper_frame, font=("Arial bold", 18), textvariable=self.winrate_number_var
         )
@@ -589,7 +703,7 @@ class Statistics(Toplevel):
 
         # 6 - 8 columns
         self.cur_streak_number_var: StringVar = StringVar()
-        self.cur_streak_number_var.set('0')
+        self.cur_streak_number_var.set(f'{self.data["current_streak"]}')
         self.cur_streak_number_lbl: Label = Label(
             self.upper_frame, font=("Arial bold", 18), textvariable=self.cur_streak_number_var
         )
@@ -597,7 +711,7 @@ class Statistics(Toplevel):
 
         # 9 - 11 columns
         self.max_streak_number_var: StringVar = StringVar()
-        self.max_streak_number_var.set('0')
+        self.max_streak_number_var.set(f'{self.data["max_streak"]}')
         self.max_streak_number_lbl: Label = Label(
             self.upper_frame, font=("Arial bold", 18), textvariable=self.max_streak_number_var
         )
@@ -611,6 +725,20 @@ class Statistics(Toplevel):
         self.place_lower_frame_and_labels()
         self.bind_keys()
         self.set_theme()
+
+    def get_data(self) -> dict:
+        raw = self.root.db_handler.get_current_user()
+        if not raw:
+            raw = ['Dummy', None, 7, 7, 7, 7, 7, 1, 2, 5, 8, 3, 1]
+
+        # mighty unpacking
+        d = {
+            "nick": raw[0], "played": raw[2], "games_won": raw[3], "games_lost": raw[4],
+            "current_streak": raw[5], "max_streak": raw[6], "first_try": raw[7],
+            "second_try": raw[8], "third_try": raw[9], "fourth_try": raw[10],
+            "fifth_try": raw[11], "sixth_try": raw[12]
+        }
+        return d
 
     def set_theme(self):
         dark = self.root.get_current_theme()
@@ -668,10 +796,10 @@ class Statistics(Toplevel):
         # adding a subplot to the figure and returning the axes of the subplot
         axes = figure.add_subplot()
 
-        # TODO
-        # get REAL data for barchart
+        # data for bars
         attempts = [i for i in range(1, 7)]
-        scores = [2, 3, 4, 1, 5, 6]
+        scores = [self.data["first_try"], self.data["second_try"], self.data["third_try"],
+                  self.data["fourth_try"], self.data["fifth_try"], self.data["sixth_try"]]
 
         bars = axes.barh(attempts, scores, color=bbc)
 
@@ -739,7 +867,7 @@ class Settings(Toplevel):
         self.off: PhotoImage = PhotoImage(file="misc/off.png")
 
         self.dark_theme_lbl: Label = Label(self.frame, text="Темный режим", font=("Arial bold", 15))
-        self.dark_theme_button = Button(
+        self.dark_theme_button: Button = Button(
             self.frame, image=self.off, bd=0, command=self.switch_theme
         )
 
@@ -778,12 +906,82 @@ class Settings(Toplevel):
         self.dark_theme_button.config(bg=bg_color, image=img, activebackground=bg_color)
 
 
-def main():
-    game = Wordle("words_wordle.txt", "data.db")
-    game.run()
+class Profiles(Toplevel):
+    def __init__(self, width: int, length: int, root: Optional[Wordle] = None):
+        super().__init__(root)
+        self.root: Optional[Wordle] = root
+        self.title("Профили")
+        self.minsize(width=width, height=length)
+        self.resizable(False, False)
+        self.grid_columnconfigure(0, weight=1)
 
-    # closing connection to db explicitly just in case
-    game.db_handler.close()
+        # colors
+        self.BASE_COLOR: str = '#f0f0f0'
+        self.DT_BASE_COLOR: str = '#121212'
+
+        self.BASE_LETTERS_COLOR: str = 'black'
+        self.DT_LETTERS_COLOR: str = '#F6F6F6'
+
+        self.BASE_LBL_COLOR: str = '#f0f0f0'
+        self.DT_LBL_COLOR: str = '#121212'
+
+        self.frame: Frame = Frame(self)
+
+        self.head_label: Label = Label(self.frame, text="ПРОФИЛИ", font=("Arial bold", 20))
+
+        self.profiles_canvas: Canvas = Canvas(self.frame, width=300, height=200)
+
+        self.prof_scrollbar: Scrollbar = Scrollbar(
+            self.frame, orient=c.VERTICAL, command=self.profiles_canvas.yview
+        )
+
+        # bind canvas and scroll bar together
+        self.profiles_canvas.config(yscrollcommand=self.prof_scrollbar.set)
+        self.profiles_canvas.bind(
+            "<Configure>", lambda event: self.profiles_canvas.configure(scrollregion=self.profiles_canvas.bbox("all"))
+        )
+
+        # set and bind a container for canvas to put shit inside it
+        self.canvas_frame: Frame = Frame(self.profiles_canvas)
+        self.profiles_canvas.create_window((0, 0), window=self.canvas_frame, anchor="nw")
+
+        self.p_add_button: Button = Button(self.frame, text="Создать", command=self.add_profile)
+
+        self.get_profiles()
+
+        self.place()
+        self.__set_theme()
+
+    def add_profile(self):
+        self.root.db_handler.add_user('qweqw')
+
+    def get_profiles(self):
+        users = self.root.db_handler.get_users()
+        print(users)
+
+    def place(self):
+        self.frame.grid(padx=10, pady=10)
+        self.head_label.grid(row=0, column=0, padx=10, pady=10)
+        self.profiles_canvas.grid(row=1, column=0)
+        self.prof_scrollbar.grid(row=1, column=1, sticky="NS")
+        self.p_add_button.grid(row=2, pady=20, sticky="SE")
+
+    def __set_theme(self):
+        dark = self.root.get_current_theme()
+        if dark:
+            self.set_theme(self.DT_BASE_COLOR, self.DT_LETTERS_COLOR, self.DT_LBL_COLOR)
+        else:
+            self.set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR, self.BASE_LBL_COLOR)
+
+    def set_theme(self, bg_color: str, txt_color: str, lbl_color: str):
+        self.config(bg=bg_color)
+        self.frame.config(bg=bg_color)
+        self.head_label.config(bg=lbl_color, fg=txt_color)
+
+
+def main():
+    game = Wordle("data.db")
+    game.run()
 
 
 if __name__ == "__main__":
