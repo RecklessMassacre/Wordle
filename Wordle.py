@@ -18,9 +18,6 @@ class DBHandler:
         self._cur = self._conn.cursor()
         self._on_connect()
 
-        # TODO
-        self.f = False
-
         if not self.check_db_init():
             self._setup_empty_db()
 
@@ -75,22 +72,22 @@ class DBHandler:
 
     def get_current_user_nick(self):
         self._cur.execute("SELECT nick_name FROM user WHERE is_current = 1")
-        arr = self._cur.fetchall()[0]
-
-        return arr
+        tarr = self._cur.fetchall()
+        if tarr:
+            return tarr[0][0]
+        else:
+            return ''
 
     def get_current_user(self):
         """
         All stuff for statistics window
         """
-        # TODO
-        if self.f:
-            self._cur.execute("SELECT * FROM get_user WHERE is_current = 1")
-            arr = self._cur.fetchall()[0]
+        self._cur.execute("SELECT * FROM get_user WHERE is_current = 1")
+        tarr = self._cur.fetchall()
+        if tarr:
+            return tarr[0]
         else:
-            arr = []
-
-        return arr
+            return []
 
     def set_current_user(self, nick_name):
         self._cur.execute("UPDATE user SET is_current = 1 WHERE nick_name = ?", (nick_name, ))
@@ -371,14 +368,26 @@ class Wordle(Tk):
                 command=lambda a=letter: self.button_click(a)  # !!!
             )
 
-        self.clear_button = Button(self.keyboard_frame, text="Очистить", font=("Arial bold", 11), command=self.clear)
-        self.enter_button = Button(self.keyboard_frame, text="Ввод ", font=("Arial bold", 11), command=self.enter)
+        self.clear_button = Button(
+            self.keyboard_frame, text="Очистить", font=("Arial bold", 11), command=self.clear
+        )
+        self.enter_button = Button(
+            self.keyboard_frame, text="Ввод ", font=("Arial bold", 11), command=self.enter
+        )
 
         # menu frame
-        self.profile_button = Button(self.menu_frame_left, height=1, width=5, text="Профили", command=self.show_profile)
-        self.ng_button = Button(self.menu_frame_left, height=1, width=5, text="Заново", command=self.new_game)
-        self.stat_button = Button(self.menu_frame_right, height=1, width=5, text="Статистика", command=self.show_stats)
-        self.settings_button = Button(self.menu_frame_right, height=1, width=5, text="Параметры", command=self.show_settings)
+        self.profile_button = Button(
+            self.menu_frame_left, height=1, width=5, text="Профили", command=self.show_profile
+        )
+        self.ng_button = Button(
+            self.menu_frame_left, height=1, width=5, text="Заново", command=self.new_game
+        )
+        self.stat_button = Button(
+            self.menu_frame_right, height=1, width=5, text="Статистика", command=self.show_stats
+        )
+        self.settings_button = Button(
+            self.menu_frame_right, height=1, width=5, text="Параметры", command=self.show_settings
+        )
 
     # seems like ctrl+c ctrl+v, but im not sure that i should have
     # 1 func and pass params to it to create windows rather that
@@ -957,6 +966,8 @@ class Profiles(Toplevel):
         self.BASE_BTN_COLOR: str = '#f0f0f0'
         self.DT_BTN_COLOR: str = 'grey'
 
+        self.current_user: str = self.get_current_user()
+
         self.frame: Frame = Frame(self)
         self.btn_frame: Frame = Frame(self.frame)
         self.btn_frame.grid_columnconfigure(0, weight=1)
@@ -989,9 +1000,18 @@ class Profiles(Toplevel):
         self.place()
         self.__set_theme()
 
+    def get_current_user(self):
+        current = self.root.db_handler.get_current_user_nick()
+        if current:
+            return current
+
+        return ""
+
     def chose_(self, p_name):
-        current = self.root.db_handler.get_current_user_nick()[0]
-        self.root.db_handler.unset_current_user(current)
+        current = self.get_current_user()
+        if current:
+            self.root.db_handler.unset_current_user(current)
+
         self.root.db_handler.set_current_user(p_name)
 
         # TODO
@@ -1001,7 +1021,13 @@ class Profiles(Toplevel):
     def delete_(self, p_name):
         self.root.db_handler.delete_user(p_name)
 
+    def clear_canvas(self):
+        for item in self.canvas_frame.winfo_children():
+            self.canvas_frame.nametowidget(item).destroy()
+
     def update_profiles(self):
+        self.clear_canvas()
+
         dark = self.root.get_current_theme()
         if dark:
             lbl_color = self.DT_LBL_COLOR
@@ -1015,18 +1041,18 @@ class Profiles(Toplevel):
         p = self.get_profiles()
         for i, profile in enumerate(p):
             Label(
-                self.canvas_frame, text=profile, bg=lbl_color, fg=txt_color
+                self.canvas_frame, name=f"label{i}", text=profile, bg=lbl_color, fg=txt_color
             ).grid(row=i, column=0, pady=5, sticky="W")
 
             Button(
-                self.canvas_frame, text="Выбрать", command=lambda a=profile: self.chose_(a),
-                bg=btn_color, fg=txt_color
-            ).grid(row=i, column=1, pady=5, sticky="E")
-
-            Button(
-                self.canvas_frame, text="Удалить", command=lambda a=profile: self.delete_(a),
+                self.canvas_frame, name=f"btn_ch{i}", text="Выбрать", command=lambda a=profile: self.chose_(a),
                 bg=btn_color, fg=txt_color
             ).grid(row=i, column=2, pady=5, sticky="E")
+
+            Button(
+                self.canvas_frame, name=f"btn_del{i}", text="Удалить", command=lambda a=profile: self.delete_(a),
+                bg=btn_color, fg=txt_color
+            ).grid(row=i, column=3, pady=5, sticky="E")
 
     def add_profile(self):
         width, length = 300, 80
@@ -1045,15 +1071,8 @@ class Profiles(Toplevel):
         self.frame.grid(padx=10, pady=10)
         self.head_label.grid(row=0, column=0, padx=10, pady=10)
         self.profiles_canvas.grid(row=1, column=0)
-        self.profiles_canvas.config(bg="blue")
 
-        self.profiles_canvas.itemconfig(
-            self.canvas_frame_id, height=200, width=300
-        )
-        self.canvas_frame.config(bg='red')
-        self.canvas_frame.grid_columnconfigure(0, weight=3)
-        self.canvas_frame.grid_columnconfigure(1, weight=1)
-        self.canvas_frame.grid_columnconfigure(2, weight=1)
+        self.canvas_frame.grid_columnconfigure(1, weight=1, pad=10)
 
         self.prof_scrollbar.grid(row=1, column=1, sticky="NS")
         self.btn_frame.grid(row=2, sticky='EW')
@@ -1078,8 +1097,6 @@ class Profiles(Toplevel):
 
 
 class ProfileGetterWindow(Toplevel):
-    # TODO
-    # set theme
     def __init__(self, width: int, length: int, root):
         super().__init__(root)
         self.root = root
