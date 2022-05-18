@@ -1,7 +1,8 @@
 import sqlite3
 from typing import Optional, Union
-from tkinter import Tk, Label, Frame, Button, PhotoImage, StringVar, Toplevel, Canvas, Scrollbar
+from tkinter import Tk, Label, Frame, Button, PhotoImage, StringVar, Toplevel, Canvas, Scrollbar, Entry
 import tkinter.constants as c
+from tkinter.messagebox import showinfo
 from random import sample
 from os.path import exists
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -9,7 +10,6 @@ from matplotlib.figure import Figure
 
 
 class DBHandler:
-    # since im singe user of the db there is no need to .commit()
     def __init__(self, db_file):
         if not exists(db_file):
             raise sqlite3.Error("Get that fucking db, all words are inside!")
@@ -24,6 +24,8 @@ class DBHandler:
         if not self.check_db_init():
             self._setup_empty_db()
 
+        print(self.get_current_user_nick())
+
     # errors cannot occur ... so fuck try except
     def check_db_init(self):
         self._cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user'")
@@ -33,39 +35,54 @@ class DBHandler:
 
     def _setup_empty_db(self):
         self._cur.execute(
-            "CREATE TABLE IF NOT EXISTS user (id INTEGER, nick_name TEXT NOT NULL,"
+            "CREATE TABLE IF NOT EXISTS user (id INTEGER, nick_name TEXT NOT NULL, "
             "is_current INTEGER, PRIMARY KEY (id))"
         )
         self._cur.execute(
             "CREATE TABLE IF NOT EXISTS stats (user_id INTEGER, played INTEGER, games_won INTEGER,"
-            "games_lost INTEGER, current_streak INTEGER, max_streak INTEGER, FOREIGN KEY (user_id)"
+            "games_lost INTEGER, current_streak INTEGER, max_streak INTEGER, FOREIGN KEY (user_id) "
             "REFERENCES user(id) ON DELETE CASCADE ON UPDATE NO ACTION)"
         )
         self._cur.execute(
             "CREATE TABLE IF NOT EXISTS distribution (user_id INTEGER, first_try INTEGER, second_try INTEGER,"
-            "third_try INTEGER, fourth_try INTEGER, fifth_try INTEGER, sixth_try INTEGER, FOREIGN KEY (user_id)"
+            "third_try INTEGER, fourth_try INTEGER, fifth_try INTEGER, sixth_try INTEGER, FOREIGN KEY (user_id) "
             "REFERENCES user(id) ON DELETE CASCADE ON UPDATE NO ACTION)"
         )
         self._cur.execute(
-            "CREATE TABLE IF NOT EXISTS keyboard_state (user_id INTEGER, k_state_string TEXT, FOREIGN KEY (user_id)"
+            "CREATE TABLE IF NOT EXISTS keyboard_state (user_id INTEGER, k_state_string TEXT, FOREIGN KEY (user_id) "
             "REFERENCES user(id) ON DELETE CASCADE ON UPDATE NO ACTION)"
         )
         self._cur.execute(
-            "CREATE TABLE IF NOT EXISTS labels_state (user_id INTEGER, l_state_string TEXT, FOREIGN KEY (user_id)"
+            "CREATE TABLE IF NOT EXISTS labels_state (user_id INTEGER, l_state_string TEXT, FOREIGN KEY (user_id) "
             "REFERENCES user(id) ON DELETE CASCADE ON UPDATE NO ACTION)"
         )
         self._cur.execute(
-            "CREATE VIEW get_user AS SELECT u.nick_name, s.played, s.games_won, s.games_lost, s.current_streak,"
-            "s.max_streak,d.first_try, d.second_try, d.third_try, d.fourth_try, d.fifth_try, d.sixth_try,"
-            "ks.k_state_string, ls.l_state_string FROM user u LEFT JOIN stats s on u.id = s.user_id"
-            "LEFT JOIN distribution d on u.id = d.user_id LEFT JOIN keyboard_state ks on u.id = ks.user_id"
-            "LEFT JOIN labels_state ls on u.id = ls.user_id;"
+            "CREATE VIEW get_user AS SELECT u.nick_name, u.is_current, s.played, s.games_won, s.games_lost, "
+            "s.current_streak, s.max_streak,d.first_try, d.second_try, d.third_try, d.fourth_try, d.fifth_try, "
+            "d.sixth_try, ks.k_state_string, ls.l_state_string FROM user u LEFT JOIN stats s on u.id = s.user_id "
+            "LEFT JOIN distribution d on u.id = d.user_id LEFT JOIN keyboard_state ks on u.id = ks.user_id "
+            "LEFT JOIN labels_state ls on u.id = ls.user_id"
         )
+        self._conn.commit()
 
     def _on_connect(self):
         self._cur.execute("PRAGMA foreign_keys = ON")
+        self._conn.commit()
+
+    def unset_current_user(self, nick_name):
+        self._cur.execute("UPDATE user set is_current = 0 WHERE nick_name =?", (nick_name, ))
+        self._conn.commit()
+
+    def get_current_user_nick(self):
+        self._cur.execute("SELECT nick_name FROM user WHERE is_current = 1")
+        arr = self._cur.fetchall()[0]
+
+        return arr
 
     def get_current_user(self):
+        """
+        All stuff for statistics window
+        """
         # TODO
         if self.f:
             self._cur.execute("SELECT * FROM get_user WHERE is_current = 1")
@@ -74,6 +91,10 @@ class DBHandler:
             arr = []
 
         return arr
+
+    def set_current_user(self, nick_name):
+        self._cur.execute("UPDATE user SET is_current = 1 WHERE nick_name = ?", (nick_name, ))
+        self._conn.commit()
 
     def user_exists(self, nick_name):
         self._cur.execute("SELECT nick_name FROM user WHERE nick_name = ?", (nick_name,))
@@ -84,6 +105,7 @@ class DBHandler:
 
     def delete_user(self, nick_name):
         self._cur.execute("DELETE FROM user WHERE nick_name = ?", (nick_name,))
+        self._conn.commit()
 
         return True
 
@@ -103,6 +125,7 @@ class DBHandler:
         self._cur.execute('INSERT INTO keyboard_state(user_id, k_state_string) VALUES (last_insert_rowid(), "")')
         self._cur.execute('INSERT INTO labels_state(user_id, l_state_string) VALUES (last_insert_rowid(), "")')
 
+        self._conn.commit()
         return True
 
     def get_users(self):
@@ -127,6 +150,9 @@ class Wordle(Tk):
         super().__init__()
         # sqlite3
         self.db_handler: DBHandler = DBHandler(db_name)
+
+        # current profile:
+        self.profile: str = ''
 
         # root initialization
         self.window_width: int = 820
@@ -231,6 +257,9 @@ class Wordle(Tk):
         self.place_buttons()
 
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def set_current_profile(self, p_name):
+        self.profile = p_name
 
     def on_closing(self):
         # TODO
@@ -346,15 +375,15 @@ class Wordle(Tk):
         self.enter_button = Button(self.keyboard_frame, text="Ввод ", font=("Arial bold", 11), command=self.enter)
 
         # menu frame
-        self.profile_button = Button(self.menu_frame_left, height=1, width=5, text="Профили", command=self.profile)
+        self.profile_button = Button(self.menu_frame_left, height=1, width=5, text="Профили", command=self.show_profile)
         self.ng_button = Button(self.menu_frame_left, height=1, width=5, text="Заново", command=self.new_game)
         self.stat_button = Button(self.menu_frame_right, height=1, width=5, text="Статистика", command=self.show_stats)
-        self.settings_button = Button(self.menu_frame_right, height=1, width=5, text="Параметры", command=self.settings)
+        self.settings_button = Button(self.menu_frame_right, height=1, width=5, text="Параметры", command=self.show_settings)
 
     # seems like ctrl+c ctrl+v, but im not sure that i should have
     # 1 func and pass params to it to create windows rather that
     # have several distinct funcs, one for each window, even though they are similar
-    def profile(self):
+    def show_profile(self):
         width, length = 400, 500
         p_window = Profiles(width, length, self)
         self.center_window(p_window, width, length)
@@ -371,8 +400,8 @@ class Wordle(Tk):
         print("lbl states: ", colors)
         print("btn states: ", self.buttons_states)
 
-    def settings(self):
-        width, length = 400, 500
+    def show_settings(self):
+        width, length = 400, 300
         set_window = Settings(width, length, self)
         self.center_window(set_window, width, length)
 
@@ -925,7 +954,14 @@ class Profiles(Toplevel):
         self.BASE_LBL_COLOR: str = '#f0f0f0'
         self.DT_LBL_COLOR: str = '#121212'
 
+        self.BASE_BTN_COLOR: str = '#f0f0f0'
+        self.DT_BTN_COLOR: str = 'grey'
+
         self.frame: Frame = Frame(self)
+        self.btn_frame: Frame = Frame(self.frame)
+        self.btn_frame.grid_columnconfigure(0, weight=1)
+        self.btn_frame.grid_columnconfigure(1, weight=4)
+        self.btn_frame.grid_columnconfigure(2, weight=1)
 
         self.head_label: Label = Label(self.frame, text="ПРОФИЛИ", font=("Arial bold", 20))
 
@@ -943,40 +979,182 @@ class Profiles(Toplevel):
 
         # set and bind a container for canvas to put shit inside it
         self.canvas_frame: Frame = Frame(self.profiles_canvas)
-        self.profiles_canvas.create_window((0, 0), window=self.canvas_frame, anchor="nw")
+        self.canvas_frame_id: int = self.profiles_canvas.create_window((0, 0), window=self.canvas_frame, anchor="nw")
 
-        self.p_add_button: Button = Button(self.frame, text="Создать", command=self.add_profile)
+        self.p_add_button: Button = Button(self.btn_frame, text="Создать", command=self.add_profile)
+        self.upd_button: Button = Button(self.btn_frame, text="Обновить", command=self.update_profiles)
 
-        self.get_profiles()
+        self.update_profiles()
 
         self.place()
         self.__set_theme()
 
+    def chose_(self, p_name):
+        current = self.root.db_handler.get_current_user_nick()[0]
+        self.root.db_handler.unset_current_user(current)
+        self.root.db_handler.set_current_user(p_name)
+
+        # TODO
+        # mb not needed at all
+        self.root.set_current_profile(p_name)
+
+    def delete_(self, p_name):
+        self.root.db_handler.delete_user(p_name)
+
+    def update_profiles(self):
+        dark = self.root.get_current_theme()
+        if dark:
+            lbl_color = self.DT_LBL_COLOR
+            btn_color = self.DT_BTN_COLOR
+            txt_color = self.DT_LETTERS_COLOR
+        else:
+            lbl_color = self.BASE_LBL_COLOR
+            btn_color = self.BASE_BTN_COLOR
+            txt_color = self.BASE_LETTERS_COLOR
+
+        p = self.get_profiles()
+        for i, profile in enumerate(p):
+            Label(
+                self.canvas_frame, text=profile, bg=lbl_color, fg=txt_color
+            ).grid(row=i, column=0, pady=5, sticky="W")
+
+            Button(
+                self.canvas_frame, text="Выбрать", command=lambda a=profile: self.chose_(a),
+                bg=btn_color, fg=txt_color
+            ).grid(row=i, column=1, pady=5, sticky="E")
+
+            Button(
+                self.canvas_frame, text="Удалить", command=lambda a=profile: self.delete_(a),
+                bg=btn_color, fg=txt_color
+            ).grid(row=i, column=2, pady=5, sticky="E")
+
     def add_profile(self):
-        self.root.db_handler.add_user('qweqw')
+        width, length = 300, 80
+        p_window = ProfileGetterWindow(width, length, self)
+        self.root.center_window(p_window, width, length)
+
+        p_window.grab_set()
 
     def get_profiles(self):
-        users = self.root.db_handler.get_users()
-        print(users)
+        users_raw = self.root.db_handler.get_users()
+        users = [item[1] for item in users_raw]
+
+        return users
 
     def place(self):
         self.frame.grid(padx=10, pady=10)
         self.head_label.grid(row=0, column=0, padx=10, pady=10)
         self.profiles_canvas.grid(row=1, column=0)
+        self.profiles_canvas.config(bg="blue")
+
+        self.profiles_canvas.itemconfig(
+            self.canvas_frame_id, height=200, width=300
+        )
+        self.canvas_frame.config(bg='red')
+        self.canvas_frame.grid_columnconfigure(0, weight=3)
+        self.canvas_frame.grid_columnconfigure(1, weight=1)
+        self.canvas_frame.grid_columnconfigure(2, weight=1)
+
         self.prof_scrollbar.grid(row=1, column=1, sticky="NS")
-        self.p_add_button.grid(row=2, pady=20, sticky="SE")
+        self.btn_frame.grid(row=2, sticky='EW')
+        self.p_add_button.grid(row=0, column=0, pady=10, sticky="W")
+        self.upd_button.grid(row=0, column=2, pady=10, sticky="E")
 
     def __set_theme(self):
         dark = self.root.get_current_theme()
         if dark:
-            self.set_theme(self.DT_BASE_COLOR, self.DT_LETTERS_COLOR, self.DT_LBL_COLOR)
+            self.set_theme(self.DT_BASE_COLOR, self.DT_LETTERS_COLOR, self.DT_LBL_COLOR, self.DT_BTN_COLOR)
         else:
-            self.set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR, self.BASE_LBL_COLOR)
+            self.set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR, self.BASE_LBL_COLOR, self.BASE_BTN_COLOR)
 
-    def set_theme(self, bg_color: str, txt_color: str, lbl_color: str):
+    def set_theme(self, bg_color: str, txt_color: str, lbl_color: str, btn_color: str):
         self.config(bg=bg_color)
         self.frame.config(bg=bg_color)
+        self.btn_frame.config(bg=bg_color)
+        self.canvas_frame.config(bg=bg_color)
         self.head_label.config(bg=lbl_color, fg=txt_color)
+        self.upd_button.config(bg=btn_color, fg=txt_color)
+        self.p_add_button.config(bg=btn_color, fg=txt_color)
+
+
+class ProfileGetterWindow(Toplevel):
+    # TODO
+    # set theme
+    def __init__(self, width: int, length: int, root):
+        super().__init__(root)
+        self.root = root
+        self.title("Создание профиля")
+        self.minsize(width=width, height=length)
+        self.resizable(False, False)
+        self.grid_columnconfigure(0, weight=2)
+        self.grid_columnconfigure(1, weight=3)
+
+        # nick lengths
+        self.MIN_NICK_LENGTH = 4
+        self.MAX_NICK_LENGTH = 24
+
+        # colors
+        self.BASE_COLOR: str = '#f0f0f0'
+        self.DT_BASE_COLOR: str = '#121212'
+
+        self.BASE_LETTERS_COLOR: str = 'black'
+        self.DT_LETTERS_COLOR: str = '#F6F6F6'
+
+        self.BASE_LBL_COLOR: str = '#f0f0f0'
+        self.DT_LBL_COLOR: str = '#121212'
+
+        self.BASE_BTN_COLOR: str = '#f0f0f0'
+        self.DT_BTN_COLOR: str = 'grey'
+
+        # init shit
+        self.label = Label(self, text="Имя профиля:", font=("Arial", 11))
+        self.ok_btn = Button(self, text="Ок", command=self.add_profile)
+        self.cancel_btn = Button(self, text="Отмена", command=self.on_closing)
+        self.entry = Entry(self, width=30)
+        self.place()
+
+        self.__set_theme()
+        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def add_profile(self):
+        user_name = self.entry.get()
+        if len(user_name) > self.MAX_NICK_LENGTH:
+            showinfo(title='Too many characters', message='Слишком длинное имя профиля')
+            return
+
+        elif len(user_name) < self.MIN_NICK_LENGTH:
+            showinfo(title='Not enough characters', message='Слишком короткое имя профиля')
+            return
+
+        ok = self.root.root.db_handler.add_user(user_name)  # that's nasty
+        if not ok:
+            showinfo(title='Profile duplicate', message='Профиль с таким именем уже существует!')
+
+        self.on_closing()
+
+    def on_closing(self):
+        self.root.grab_set()
+        self.destroy()
+
+    def place(self):
+        self.label.grid(row=0, column=0, padx=5, pady=10)
+        self.ok_btn.grid(row=1, column=0, ipadx=3, ipady=3)
+        self.cancel_btn.grid(row=1, column=1, ipadx=3, ipady=3)
+        self.entry.grid(row=0, column=1, padx=5, pady=10)
+
+    def __set_theme(self):
+        dark = self.root.root.get_current_theme()
+        if dark:
+            self.set_theme(self.DT_BASE_COLOR, self.DT_LETTERS_COLOR, self.DT_LBL_COLOR, self.DT_BTN_COLOR)
+        else:
+            self.set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR, self.BASE_LBL_COLOR, self.BASE_BTN_COLOR)
+
+    def set_theme(self, bg_color: str, txt_color: str, lbl_color: str, btn_color: str):
+        self.config(bg=bg_color)
+        self.label.config(bg=lbl_color, fg=txt_color)
+        self.ok_btn.config(bg=btn_color, fg=txt_color)
+        self.cancel_btn.config(bg=btn_color, fg=txt_color)
+        self.entry.config(bg=lbl_color, fg=txt_color)
 
 
 def main():
