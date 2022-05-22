@@ -1,8 +1,8 @@
 import sqlite3
 from typing import Optional, Union
-from tkinter import Tk, Label, Frame, Button, PhotoImage, StringVar, Toplevel, Canvas, Scrollbar, Entry
+from tkinter import Tk, Label, Frame, Button, PhotoImage, StringVar, Toplevel, Canvas, Scrollbar, Entry, Checkbutton
 import tkinter.constants as c
-from tkinter.messagebox import showinfo
+from tkinter.messagebox import askokcancel, showinfo, WARNING
 from random import sample
 from os.path import exists
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -21,7 +21,27 @@ class DBHandler:
         if not self.check_db_init():
             self._setup_empty_db()
 
-        print(self.get_current_user_nick())
+        # WTF
+        # creates a list of callable funcs to change certain value
+        # in distribution table
+        # d is dict for interpreting numbers to column names
+        self.d = {
+            1: 'first',
+            2: 'second',
+            3: 'third',
+            4: 'fourth',
+            5: 'fifth',
+            6: 'sixth',
+        }
+
+        # TODO
+        # might be unsafe to use f-string here
+        self.func_arr = [
+            lambda i=i: self._cur.execute(
+                f"UPDATE distribution SET {self.d[i]}_try = {self.d[i]}_try + 1 "
+                f"WHERE user_id = (SELECT id FROM user WHERE is_current = 1)"
+            ) for i in range(1, 7)
+        ]
 
     # errors cannot occur ... so fuck try except
     def check_db_init(self):
@@ -46,19 +66,18 @@ class DBHandler:
             "REFERENCES user(id) ON DELETE CASCADE ON UPDATE NO ACTION)"
         )
         self._cur.execute(
-            "CREATE TABLE IF NOT EXISTS keyboard_state (user_id INTEGER, k_state_string TEXT, FOREIGN KEY (user_id) "
-            "REFERENCES user(id) ON DELETE CASCADE ON UPDATE NO ACTION)"
+            "CREATE TABLE IF NOT EXISTS game_state (user_id INTEGER,k_state_string TEXT, "
+            "l_state_string TEXT, word TEXT, FOREIGN KEY (user_id) REFERENCES user(id) "
+            "ON DELETE CASCADE ON UPDATE NO ACTION)"
         )
-        self._cur.execute(
-            "CREATE TABLE IF NOT EXISTS labels_state (user_id INTEGER, l_state_string TEXT, FOREIGN KEY (user_id) "
-            "REFERENCES user(id) ON DELETE CASCADE ON UPDATE NO ACTION)"
-        )
+
+        self._cur.execute("CREATE TABLE IF NOT EXISTS autosave (activated INTEGER)")
+        self._cur.execute("INSERT INTO autosave (activated) VALUES (0)")
         self._cur.execute(
             "CREATE VIEW get_user AS SELECT u.nick_name, u.is_current, s.played, s.games_won, s.games_lost, "
             "s.current_streak, s.max_streak,d.first_try, d.second_try, d.third_try, d.fourth_try, d.fifth_try, "
-            "d.sixth_try, ks.k_state_string, ls.l_state_string FROM user u LEFT JOIN stats s on u.id = s.user_id "
-            "LEFT JOIN distribution d on u.id = d.user_id LEFT JOIN keyboard_state ks on u.id = ks.user_id "
-            "LEFT JOIN labels_state ls on u.id = ls.user_id"
+            "d.sixth_try, g.k_state_string, g.l_state_string, g.word FROM user u LEFT JOIN stats s on u.id = s.user_id "
+            "LEFT JOIN distribution d on u.id = d.user_id LEFT JOIN game_state g on u.id = g.user_id "
         )
         self._conn.commit()
 
@@ -69,6 +88,7 @@ class DBHandler:
     def unset_current_user(self, nick_name):
         self._cur.execute("UPDATE user set is_current = 0 WHERE nick_name =?", (nick_name, ))
         self._conn.commit()
+        return True
 
     def get_current_user_nick(self):
         self._cur.execute("SELECT nick_name FROM user WHERE is_current = 1")
@@ -92,6 +112,7 @@ class DBHandler:
     def set_current_user(self, nick_name):
         self._cur.execute("UPDATE user SET is_current = 1 WHERE nick_name = ?", (nick_name, ))
         self._conn.commit()
+        return True
 
     def user_exists(self, nick_name):
         self._cur.execute("SELECT nick_name FROM user WHERE nick_name = ?", (nick_name,))
@@ -119,9 +140,10 @@ class DBHandler:
             "INSERT INTO distribution(user_id, first_try, second_try, third_try, fourth_try, fifth_try, sixth_try)"
             "VALUES (last_insert_rowid(), 0, 0, 0, 0, 0, 0)"
         )
-        self._cur.execute('INSERT INTO keyboard_state(user_id, k_state_string) VALUES (last_insert_rowid(), "")')
-        self._cur.execute('INSERT INTO labels_state(user_id, l_state_string) VALUES (last_insert_rowid(), "")')
-
+        self._cur.execute(
+            'INSERT INTO game_state (user_id, k_state_string, l_state_string, word) '
+            'VALUES (last_insert_rowid(), "", "", "")'
+        )
         self._conn.commit()
         return True
 
@@ -137,6 +159,51 @@ class DBHandler:
         arr = [item[0] for item in self._cur.fetchall()]
         return arr
 
+    def get_autosave_opt(self):
+        self._cur.execute("SELECT * FROM autosave")
+
+        arr = self._cur.fetchall()
+        return arr
+
+    def switch_autosave(self):
+        self._cur.execute("UPDATE autosave SET activated = not activated")
+        self._conn.commit()
+
+    def add_loss(self):
+        self._cur.execute(
+            "UPDATE stats SET played = played + 1, games_lost = games_lost + 1, current_streak = 0 "
+            "WHERE user_id = (SELECT id FROM user WHERE is_current = 1)"
+        )
+        self._conn.commit()
+        return True
+
+    def add_win(self, cur_row):
+        self._cur.execute(
+            "UPDATE stats SET played = played + 1, games_won = games_won + 1, current_streak = current_streak + 1, "
+            "max_streak = MAX(current_streak + 1, max_streak) WHERE user_id = "
+            "(SELECT id FROM user WHERE is_current = 1) "
+        )
+
+        self.func_arr[cur_row - 1]()
+        self._conn.commit()
+        return True
+
+    def save_state(self, btn, lbl, word):
+        self._cur.execute(
+            "UPDATE game_state SET k_state_string = ?, l_state_string = ?, word = ? " 
+            "WHERE user_id = (SELECT id FROM user WHERE is_current = 1)", (btn, lbl, word)
+        )
+        self._conn.commit()
+
+    def get_state(self):
+        self._cur.execute(
+            "SELECT k_state_string, l_state_string, word FROM game_state "
+            "WHERE user_id = (SELECT id FROM user WHERE is_current = 1)"
+        )
+
+        arr = self._cur.fetchall()
+        return arr
+
     def close(self):
         self._conn.close()
 
@@ -149,7 +216,7 @@ class Wordle(Tk):
         self.db_handler: DBHandler = DBHandler(db_name)
 
         # current profile:
-        self.profile: str = ''
+        self.profile: str = self.get_current_user()
 
         # root initialization
         self.window_width: int = 820
@@ -180,6 +247,7 @@ class Wordle(Tk):
         self.dark_theme_fl: bool = False
 
         # game data
+        self.autosave: bool = self.load_autosave_opt()
         self.ROW_AMOUNT: int = 6
         self.row_length: int = 5
         self.words_list: Optional[list[str]] = self.db_handler.get_words()  # all 5-letters words
@@ -199,7 +267,6 @@ class Wordle(Tk):
         self.image: PhotoImage = PhotoImage()
 
         # frames definition
-        # self.main_frame: Frame = Frame(self.root)
         self.gfield_frame: Frame = Frame(self)
         self.menu_frame_left: Frame = Frame(self)
         self.menu_frame_right: Frame = Frame(self)
@@ -253,18 +320,96 @@ class Wordle(Tk):
         self.place_labels()
         self.place_buttons()
 
+        self.init_game_data()
+
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def init_game_data(self):
+        # TODO
+        # check this thoroughly
+        raw = self.db_handler.get_state()
+        lbl, btn = {}, {}
+        # [:-1] cuts last separator
+        btn_raw, lbl_raw, word = raw[0][0][:-1].split('|'), raw[0][1][:-1].split('|'), raw[0][2]
+
+        for item in btn_raw:
+            temp = item.split(":")
+            btn[temp[0]] = int(temp[1])
+
+        for item in lbl_raw:
+            temp = item.split(":")
+            lbl[temp[0]] = f"{temp[1]}:{temp[2]}"
+
+        pointer = 0
+        for value in lbl.values():
+            if not value.split(":")[1]:
+                break
+
+            pointer += 1
+
+        self.cur_row = pointer // self.row_length + 1
+        self.label_pointer = pointer
+        self.buttons_states = btn
+        self.chosen_word = word
+
+        for letter, state in self.buttons_states.items():
+            btn_name = self.letter_to_button_name_dict[letter]
+            color = self.state_to_color_dict[state]
+            self.btn_dict[btn_name].config(bg=color)
+
+        for i in range(self.ROW_AMOUNT):
+            for j in range(self.row_length):
+                color, letter = lbl[f'lbl{i}{j}'].split(":")
+                if letter:
+                    ltr_color = self.PAINTED_LETTERS_COLOR
+                else:
+                    ltr_color = self.BASE_LETTERS_COLOR
+                self.labels_dict[f'lbl{i}{j}'].config(bg=color, fg=ltr_color)
+                self.text_vars[self.row_length * i + j].set(letter)
+
+    def load_autosave_opt(self):
+        raw = self.db_handler.get_autosave_opt()
+        value = raw[0][0]
+        return True if value else False
+
+    def change_autosave(self):
+        self.autosave = not self.autosave
+        self.db_handler.switch_autosave()
+
+    def get_current_user(self):
+        current = self.db_handler.get_current_user_nick()
+        if current:
+            return current
+
+        return ""
 
     def set_current_profile(self, p_name):
         self.profile = p_name
 
     def on_closing(self):
-        # TODO
-        # save curr data to db
+        if self.autosave and self.game_flag:
+            self.save_cur_game()
 
         # closing connection to db explicitly just in case
         self.db_handler.close()
         self.destroy()
+
+    def save_cur_game(self):
+        colors_letters = {}
+
+        for i in range(self.ROW_AMOUNT):
+            for j in range(self.row_length):
+                colors_letters[f'lbl{i}{j}'] = f"{self.labels_dict[f'lbl{i}{j}'].cget('bg')}:" \
+                                               f"{self.labels_dict[f'lbl{i}{j}'].cget('text')}"
+
+        btn, lbl = "", ""
+        for key, value in colors_letters.items():
+            lbl += f'{key}:{value}|'
+
+        for key, value in self.buttons_states.items():
+            btn += f'{key}:{value}|'
+
+        self.db_handler.save_state(btn, lbl, self.chosen_word)
 
     def get_current_theme(self):
         return self.dark_theme_fl
@@ -365,7 +510,7 @@ class Wordle(Tk):
 
             self.btn_dict[f"btn{i}"] = Button(
                 self.keyboard_frame, text=letter, font=("Arial bold", 11),
-                command=lambda a=letter: self.button_click(a)  # !!!
+                command=lambda a=letter: self.button_click(a)
             )
 
         self.clear_button = Button(
@@ -399,15 +544,6 @@ class Wordle(Tk):
 
         # lock root window
         p_window.grab_set()
-
-        # debug shit
-        colors = {}
-        for i in range(self.ROW_AMOUNT):
-            for j in range(self.row_length):
-                colors[f'lbl{i}{j}'] = self.labels_dict[f'lbl{i}{j}'].cget("bg")
-
-        print("lbl states: ", colors)
-        print("btn states: ", self.buttons_states)
 
     def show_settings(self):
         width, length = 400, 300
@@ -521,7 +657,7 @@ class Wordle(Tk):
         for j in range(len(states)):
             state = states[j]
             color = self.state_to_color_dict[state]
-            self.labels_dict[f"lbl{i}{j}"].configure(background=color, fg=self.PAINTED_LETTERS_COLOR)
+            self.labels_dict[f"lbl{i}{j}"].config(bg=color, fg=self.PAINTED_LETTERS_COLOR)
 
     def unlock_next_row(self):
         # increment coefficient for allowing typing in the next row
@@ -642,6 +778,7 @@ class Wordle(Tk):
         self.mainloop()
 
     def congratulate(self):
+        self.db_handler.add_win(self.cur_row)
         self.message_label_var.set(f'Поздраляю! Загадано было слово: {self.chosen_word}\nДля начала новой игры '
                                    f'нажмите кнопку "заново".')
         self.game_flag = False
@@ -688,12 +825,15 @@ class Wordle(Tk):
         self.re_init_buttons()
 
     def game_over(self):
+        self.db_handler.add_loss()
         self.message_label_var.set(f'Какая жалость! Загадано было слово: {self.chosen_word}\nДля начала новой игры '
                                    f'нажмите кнопку "Заново".')
         self.game_flag = False
 
 
 class Statistics(Toplevel):
+    # TODO
+    # Try to do smth with 0 in barchart
     def __init__(self, width: int, length: int, root: Optional[Wordle] = None):
         super().__init__(root)
         self.root: Optional[Wordle] = root
@@ -731,9 +871,15 @@ class Statistics(Toplevel):
 
         # 3 - 5 columns
         self.winrate_number_var: StringVar = StringVar()
-        self.winrate_number_var.set(
-            f"{round((self.data['games_won'] / self.data['played']) * 100)}"
-        )
+        if self.data['played'] == 0:
+            self.winrate_number_var.set(
+                "0"
+            )
+        else:
+            self.winrate_number_var.set(
+                f"{round((self.data['games_won'] / self.data['played']) * 100)}"
+            )
+
         self.winrate_number_lbl: Label = Label(
             self.upper_frame, font=("Arial bold", 18), textvariable=self.winrate_number_var
         )
@@ -883,6 +1029,8 @@ class Statistics(Toplevel):
 
 
 class Settings(Toplevel):
+    # TODO
+    # make buttons beautiful :3
     def __init__(self, width: int, length: int, root: Optional[Wordle] = None):
         super().__init__(root)
         self.root: Optional[Wordle] = root
@@ -900,48 +1048,50 @@ class Settings(Toplevel):
 
         self.frame: Frame = Frame(self)
 
-        # switch button images
-        self.on: PhotoImage = PhotoImage(file="misc/on1.png")
-        self.off: PhotoImage = PhotoImage(file="misc/off.png")
+        self.autosave_button = Checkbutton(
+            self.frame, text="Автосохранение", font=("Arial bold", 15), command=self.switch_autosave
+        )
 
-        self.dark_theme_lbl: Label = Label(self.frame, text="Темный режим", font=("Arial bold", 15))
-        self.dark_theme_button: Button = Button(
-            self.frame, image=self.off, bd=0, command=self.switch_theme
+        if self.root.autosave:
+            self.autosave_button.select()
+
+        self.dark_theme_button = Checkbutton(
+            self.frame, text="Темный режим", font=("Arial bold", 15), command=self.switch_theme
         )
 
         self.place()
         self.bind_keys()
         self.__set_theme()
 
+    def switch_autosave(self):
+        self.root.change_autosave()
+
     def __set_theme(self):
         dark = self.root.get_current_theme()
         if dark:
-            self.set_theme(self.DT_BASE_COLOR, self.DT_LETTERS_COLOR, self.on)
+            self.set_theme(self.DT_BASE_COLOR, self.DT_LETTERS_COLOR)
         else:
-            self.set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR, self.off)
+            self.set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR)
 
     def switch_theme(self):
-        dark = self.root.get_current_theme()
-        if dark:
-            self.set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR, self.off)
-        else:
-            self.set_theme(self.DT_BASE_COLOR, self.DT_LETTERS_COLOR, self.on)
-
         self.root.change_color_theme()
+        self.__set_theme()
 
     def bind_keys(self):
         self.bind("<Escape>", lambda event: self.destroy())
 
     def place(self):
         self.frame.grid(padx=10, pady=10)
-        self.dark_theme_lbl.grid(row=0, column=0, padx=10, pady=10)
         self.dark_theme_button.grid(row=0, column=1, padx=10, pady=10)
+        self.autosave_button.grid(row=1)
 
-    def set_theme(self, bg_color: str, txt_color: str, img: PhotoImage):
+    def set_theme(self, bg_color: str, txt_color: str):
+        # TODO
+        # txt is not used
         self.config(bg=bg_color)
         self.frame.config(bg=bg_color)
-        self.dark_theme_lbl.config(bg=bg_color, fg=txt_color)
-        self.dark_theme_button.config(bg=bg_color, image=img, activebackground=bg_color)
+        self.dark_theme_button.config(bg=bg_color, activebackground=bg_color)
+        self.autosave_button.config(bg=bg_color, activebackground=bg_color)
 
 
 class Profiles(Toplevel):
@@ -966,7 +1116,7 @@ class Profiles(Toplevel):
         self.BASE_BTN_COLOR: str = '#f0f0f0'
         self.DT_BTN_COLOR: str = 'grey'
 
-        self.current_user: str = self.get_current_user()
+        self.CURRENT_PROFILE: str = '#5EA83D'
 
         self.frame: Frame = Frame(self)
         self.btn_frame: Frame = Frame(self.frame)
@@ -993,22 +1143,14 @@ class Profiles(Toplevel):
         self.canvas_frame_id: int = self.profiles_canvas.create_window((0, 0), window=self.canvas_frame, anchor="nw")
 
         self.p_add_button: Button = Button(self.btn_frame, text="Создать", command=self.add_profile)
-        self.upd_button: Button = Button(self.btn_frame, text="Обновить", command=self.update_profiles)
 
         self.update_profiles()
 
         self.place()
         self.__set_theme()
 
-    def get_current_user(self):
-        current = self.root.db_handler.get_current_user_nick()
-        if current:
-            return current
-
-        return ""
-
     def chose_(self, p_name):
-        current = self.get_current_user()
+        current = self.root.get_current_user()
         if current:
             self.root.db_handler.unset_current_user(current)
 
@@ -1017,9 +1159,18 @@ class Profiles(Toplevel):
         # TODO
         # mb not needed at all
         self.root.set_current_profile(p_name)
+        self.update_profiles()
 
     def delete_(self, p_name):
-        self.root.db_handler.delete_user(p_name)
+        really = askokcancel(
+            title="Confirmation",
+            message=f"Вы точно хотите удалить пользователя {p_name}?",
+            icon=WARNING
+        )
+
+        if really:
+            self.root.db_handler.delete_user(p_name)
+            self.update_profiles()
 
     def clear_canvas(self):
         for item in self.canvas_frame.winfo_children():
@@ -1027,6 +1178,7 @@ class Profiles(Toplevel):
 
     def update_profiles(self):
         self.clear_canvas()
+        current = self.root.get_current_user()
 
         dark = self.root.get_current_theme()
         if dark:
@@ -1040,14 +1192,19 @@ class Profiles(Toplevel):
 
         p = self.get_profiles()
         for i, profile in enumerate(p):
-            Label(
-                self.canvas_frame, name=f"label{i}", text=profile, bg=lbl_color, fg=txt_color
-            ).grid(row=i, column=0, pady=5, sticky="W")
+            if profile == current:
+                Label(
+                    self.canvas_frame, name=f"label{i}", text=profile, bg=self.CURRENT_PROFILE, fg=txt_color
+                ).grid(row=i, column=0, pady=5, sticky="W")
+            else:
+                Label(
+                    self.canvas_frame, name=f"label{i}", text=profile, bg=lbl_color, fg=txt_color
+                ).grid(row=i, column=0, pady=5, sticky="W")
 
             Button(
                 self.canvas_frame, name=f"btn_ch{i}", text="Выбрать", command=lambda a=profile: self.chose_(a),
                 bg=btn_color, fg=txt_color
-            ).grid(row=i, column=2, pady=5, sticky="E")
+            ).grid(row=i, column=2, pady=5, padx=50, sticky="E")
 
             Button(
                 self.canvas_frame, name=f"btn_del{i}", text="Удалить", command=lambda a=profile: self.delete_(a),
@@ -1072,12 +1229,11 @@ class Profiles(Toplevel):
         self.head_label.grid(row=0, column=0, padx=10, pady=10)
         self.profiles_canvas.grid(row=1, column=0)
 
-        self.canvas_frame.grid_columnconfigure(1, weight=1, pad=10)
+        self.profiles_canvas.grid_columnconfigure(1, weight=1, pad=10)
 
         self.prof_scrollbar.grid(row=1, column=1, sticky="NS")
         self.btn_frame.grid(row=2, sticky='EW')
         self.p_add_button.grid(row=0, column=0, pady=10, sticky="W")
-        self.upd_button.grid(row=0, column=2, pady=10, sticky="E")
 
     def __set_theme(self):
         dark = self.root.get_current_theme()
@@ -1090,9 +1246,9 @@ class Profiles(Toplevel):
         self.config(bg=bg_color)
         self.frame.config(bg=bg_color)
         self.btn_frame.config(bg=bg_color)
+        self.profiles_canvas.config(bg=bg_color)
         self.canvas_frame.config(bg=bg_color)
         self.head_label.config(bg=lbl_color, fg=txt_color)
-        self.upd_button.config(bg=btn_color, fg=txt_color)
         self.p_add_button.config(bg=btn_color, fg=txt_color)
 
 
@@ -1143,7 +1299,7 @@ class ProfileGetterWindow(Toplevel):
             showinfo(title='Not enough characters', message='Слишком короткое имя профиля')
             return
 
-        ok = self.root.root.db_handler.add_user(user_name)  # that's nasty
+        ok = self.root.root.db_handler.add_user(user_name)
         if not ok:
             showinfo(title='Profile duplicate', message='Профиль с таким именем уже существует!')
 
@@ -1151,6 +1307,7 @@ class ProfileGetterWindow(Toplevel):
 
     def on_closing(self):
         self.root.grab_set()
+        self.root.update_profiles()
         self.destroy()
 
     def place(self):
