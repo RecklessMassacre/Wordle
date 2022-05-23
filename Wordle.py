@@ -2,7 +2,7 @@ import sqlite3
 from typing import Optional, Union
 from tkinter import Tk, Label, Frame, Button, PhotoImage, StringVar, Toplevel, Canvas, Scrollbar, Entry, Checkbutton
 import tkinter.constants as c
-from tkinter.messagebox import askokcancel, showinfo, WARNING
+from tkinter.messagebox import askokcancel, showinfo, WARNING, QUESTION
 from random import sample
 from os.path import exists
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -10,9 +10,11 @@ from matplotlib.figure import Figure
 
 
 class DBHandler:
+    # committing after every query so i can see how db changes in console
+    # errors cannot occur ... so fuck try except
     def __init__(self, db_file):
         if not exists(db_file):
-            raise sqlite3.Error("Get that fucking db, all words are inside!")
+            raise sqlite3.Error("U lost y db lol")
 
         self._conn = sqlite3.connect(db_file)
         self._cur = self._conn.cursor()
@@ -21,7 +23,6 @@ class DBHandler:
         if not self.check_db_init():
             self._setup_empty_db()
 
-        # WTF
         # creates a list of callable funcs to change certain value
         # in distribution table
         # d is dict for interpreting numbers to column names
@@ -34,8 +35,6 @@ class DBHandler:
             6: 'sixth',
         }
 
-        # TODO
-        # might be unsafe to use f-string here
         self.func_arr = [
             lambda i=i: self._cur.execute(
                 f"UPDATE distribution SET {self.d[i]}_try = {self.d[i]}_try + 1 "
@@ -43,10 +42,9 @@ class DBHandler:
             ) for i in range(1, 7)
         ]
 
-    # errors cannot occur ... so fuck try except
     def check_db_init(self):
         self._cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user'")
-        arr = [item for item in self._cur.fetchall()]
+        arr = self._cur.fetchall()
 
         return True if arr else False
 
@@ -204,6 +202,18 @@ class DBHandler:
         arr = self._cur.fetchall()
         return arr
 
+    def check_state(self):
+        self._cur.execute(
+            "SELECT word FROM game_state "
+            "WHERE user_id = (SELECT id FROM user WHERE is_current = 1)"
+        )
+
+        tpl = self._cur.fetchone()
+        if tpl:
+            return True if tpl[0] else False
+
+        return False
+
     def close(self):
         self._conn.close()
 
@@ -320,13 +330,26 @@ class Wordle(Tk):
         self.place_labels()
         self.place_buttons()
 
-        self.init_game_data()
+        self.load_ans_flag = None
+        self.ask_load_game()
 
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
+    def ask_load_game(self):
+        if self.autosave:
+            if self.db_handler.check_state():
+                self.create_ask_load_window()
+
+    def create_ask_load_window(self):
+        width, length = 300, 100
+        oc_window = OkCancelWindow(width, length, self)
+        self.center_window(oc_window, width, length)
+
+        # lock root window and put it behind new one
+        oc_window.grab_set()
+        self.lift()
+
     def init_game_data(self):
-        # TODO
-        # check this thoroughly
         raw = self.db_handler.get_state()
         lbl, btn = {}, {}
         # [:-1] cuts last separator
@@ -338,6 +361,9 @@ class Wordle(Tk):
 
         for item in lbl_raw:
             temp = item.split(":")
+            # i shouldn't load unpainted letters
+            if temp[1] == 'white':
+                temp[2] = ''
             lbl[temp[0]] = f"{temp[1]}:{temp[2]}"
 
         pointer = 0
@@ -352,11 +378,13 @@ class Wordle(Tk):
         self.buttons_states = btn
         self.chosen_word = word
 
+        # paint buttons
         for letter, state in self.buttons_states.items():
             btn_name = self.letter_to_button_name_dict[letter]
             color = self.state_to_color_dict[state]
             self.btn_dict[btn_name].config(bg=color)
 
+        # put letters in labels and paint them
         for i in range(self.ROW_AMOUNT):
             for j in range(self.row_length):
                 color, letter = lbl[f'lbl{i}{j}'].split(":")
@@ -395,6 +423,10 @@ class Wordle(Tk):
         self.destroy()
 
     def save_cur_game(self):
+        # to save only light mode data
+        if self.dark_theme_fl:
+            self.set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR, self.BASE_LBL_COLOR, self.BASE_BTN_COLOR)
+
         colors_letters = {}
 
         for i in range(self.ROW_AMOUNT):
@@ -416,13 +448,9 @@ class Wordle(Tk):
 
     def change_color_theme(self):
         if self.dark_theme_fl:
-            self.set_theme(
-                self.BASE_COLOR, self.BASE_LETTERS_COLOR, self.BASE_LBL_COLOR, self.BASE_BTN_COLOR
-            )
+            self.set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR, self.BASE_LBL_COLOR, self.BASE_BTN_COLOR)
         else:
-            self.set_theme(
-                self.DT_BASE_COLOR, self.PAINTED_LETTERS_COLOR, self.DT_LBL_COLOR, self.DT_BTN_COLOR
-            )
+            self.set_theme(self.DT_BASE_COLOR, self.PAINTED_LETTERS_COLOR, self.DT_LBL_COLOR, self.DT_BTN_COLOR)
 
         self.dark_theme_fl = not self.dark_theme_fl
 
@@ -690,10 +718,16 @@ class Wordle(Tk):
                     self.buttons_states[letter] = 3
 
             # now to reconfigure button color
-            abs_state = self.buttons_states[letter]
-            color = self.state_to_color_dict[abs_state]
-            btn_name = self.letter_to_button_name_dict[letter]
-            self.btn_dict[btn_name].configure(bg=color)
+            if self.dark_theme_fl:
+                abs_state = self.buttons_states[letter]
+                color = self.dt_state_to_color_dict[abs_state]
+                btn_name = self.letter_to_button_name_dict[letter]
+                self.btn_dict[btn_name].configure(bg=color)
+            else:
+                abs_state = self.buttons_states[letter]
+                color = self.state_to_color_dict[abs_state]
+                btn_name = self.letter_to_button_name_dict[letter]
+                self.btn_dict[btn_name].configure(bg=color)
 
     def valid_word(self):
         # comparing words
@@ -774,15 +808,6 @@ class Wordle(Tk):
                 # incrementing label pointer
                 self.label_pointer += 1
 
-    def run(self):
-        self.mainloop()
-
-    def congratulate(self):
-        self.db_handler.add_win(self.cur_row)
-        self.message_label_var.set(f'Поздраляю! Загадано было слово: {self.chosen_word}\nДля начала новой игры '
-                                   f'нажмите кнопку "заново".')
-        self.game_flag = False
-
     def re_init_labels(self):
         for item in self.text_vars:
             item.set('')
@@ -810,6 +835,15 @@ class Wordle(Tk):
         for item in self.btn_dict.values():
             item.config(bg=bg_color, fg=ltr_color)
 
+    def congratulate(self):
+        # deleting last game
+        self.db_handler.add_win(self.cur_row)
+
+        self.db_handler.save_state("", "", "")
+        self.message_label_var.set(f'Поздраляю! Загадано было слово: {self.chosen_word}\nДля начала новой игры '
+                                   f'нажмите кнопку "заново".')
+        self.game_flag = False
+
     def new_game(self):
         # resetting game variables
         self.game_flag = True
@@ -824,16 +858,20 @@ class Wordle(Tk):
         # clear buttons colors
         self.re_init_buttons()
 
+        # deleting last game
+        self.db_handler.save_state("", "", "")
+
     def game_over(self):
         self.db_handler.add_loss()
         self.message_label_var.set(f'Какая жалость! Загадано было слово: {self.chosen_word}\nДля начала новой игры '
                                    f'нажмите кнопку "Заново".')
         self.game_flag = False
 
+    def run(self):
+        self.mainloop()
+
 
 class Statistics(Toplevel):
-    # TODO
-    # Try to do smth with 0 in barchart
     def __init__(self, width: int, length: int, root: Optional[Wordle] = None):
         super().__init__(root)
         self.root: Optional[Wordle] = root
@@ -1001,9 +1039,15 @@ class Statistics(Toplevel):
 
         axes.set_yticks(attempts)
         axes.tick_params(labelcolor=txt)
+        for item in bars:
+            print(item)
 
         # put values on the right of the bars
-        axes.bar_label(bars, color=txt)
+        for bar in bars:
+            width = bar.get_width()
+            label_y = bar.get_y() + bar.get_height() / 1.5
+            if width > 0:
+                axes.text(width, label_y, s=f'{width}', color=txt)
 
         return figure_canvas.get_tk_widget()
 
@@ -1029,8 +1073,6 @@ class Statistics(Toplevel):
 
 
 class Settings(Toplevel):
-    # TODO
-    # make buttons beautiful :3
     def __init__(self, width: int, length: int, root: Optional[Wordle] = None):
         super().__init__(root)
         self.root: Optional[Wordle] = root
@@ -1043,8 +1085,8 @@ class Settings(Toplevel):
         self.BASE_COLOR: str = '#f0f0f0'
         self.DT_BASE_COLOR: str = '#121212'
 
-        self.BASE_LETTERS_COLOR: str = 'black'  # seems like default text color is black
-        self.DT_LETTERS_COLOR: str = '#F6F6F6'
+        self.BASE_LETTERS_COLOR: str = 'black'
+        self.DT_LETTERS_COLOR: str = 'grey'
 
         self.frame: Frame = Frame(self)
 
@@ -1082,16 +1124,14 @@ class Settings(Toplevel):
 
     def place(self):
         self.frame.grid(padx=10, pady=10)
-        self.dark_theme_button.grid(row=0, column=1, padx=10, pady=10)
-        self.autosave_button.grid(row=1)
+        self.dark_theme_button.grid(row=0, sticky="W")
+        self.autosave_button.grid(row=1, sticky="W")
 
     def set_theme(self, bg_color: str, txt_color: str):
-        # TODO
-        # txt is not used
         self.config(bg=bg_color)
         self.frame.config(bg=bg_color)
-        self.dark_theme_button.config(bg=bg_color, activebackground=bg_color)
-        self.autosave_button.config(bg=bg_color, activebackground=bg_color)
+        self.dark_theme_button.config(bg=bg_color, activebackground=bg_color, fg=txt_color)
+        self.autosave_button.config(bg=bg_color, activebackground=bg_color, fg=txt_color)
 
 
 class Profiles(Toplevel):
@@ -1195,11 +1235,11 @@ class Profiles(Toplevel):
             if profile == current:
                 Label(
                     self.canvas_frame, name=f"label{i}", text=profile, bg=self.CURRENT_PROFILE, fg=txt_color
-                ).grid(row=i, column=0, pady=5, sticky="W")
+                ).grid(row=i, column=0, columnspan=2, pady=5, sticky="W")
             else:
                 Label(
                     self.canvas_frame, name=f"label{i}", text=profile, bg=lbl_color, fg=txt_color
-                ).grid(row=i, column=0, pady=5, sticky="W")
+                ).grid(row=i, column=0, columnspan=2, pady=5, sticky="W")
 
             Button(
                 self.canvas_frame, name=f"btn_ch{i}", text="Выбрать", command=lambda a=profile: self.chose_(a),
@@ -1228,9 +1268,6 @@ class Profiles(Toplevel):
         self.frame.grid(padx=10, pady=10)
         self.head_label.grid(row=0, column=0, padx=10, pady=10)
         self.profiles_canvas.grid(row=1, column=0)
-
-        self.profiles_canvas.grid_columnconfigure(1, weight=1, pad=10)
-
         self.prof_scrollbar.grid(row=1, column=1, sticky="NS")
         self.btn_frame.grid(row=2, sticky='EW')
         self.p_add_button.grid(row=0, column=0, pady=10, sticky="W")
@@ -1329,6 +1366,34 @@ class ProfileGetterWindow(Toplevel):
         self.ok_btn.config(bg=btn_color, fg=txt_color)
         self.cancel_btn.config(bg=btn_color, fg=txt_color)
         self.entry.config(bg=lbl_color, fg=txt_color)
+
+
+class OkCancelWindow(Toplevel):
+    # askokcancel func brings in strange bug
+    # of keyboard keybindings stop working for some reason
+    # until you perform some action in OS
+    def __init__(self, width: int, length: int, root):
+        super().__init__(root)
+        self.root = root
+        self.title("Загрузка")
+        self.minsize(width=width, height=length)
+        self.resizable(False, False)
+
+        self.grid_columnconfigure(1, weight=1)
+
+        self.lbl = Label(self, text="Загрузить последнюю игру?", font=("Arial bold", 12))
+        self.ok_btn = Button(self, text="Ок", command=self.ok)
+        self.cancel_btn = Button(self, text="Отмена", command=self.destroy)
+
+        self.lbl.grid(row=0, column=0, columnspan=3, sticky="NSEW", pady=20)
+        self.ok_btn.grid(row=1, column=0, sticky="W", ipadx=20, padx=10)
+        self.cancel_btn.grid(row=1, column=2, sticky="E", ipadx=10, padx=10)
+
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+
+    def ok(self):
+        self.root.init_game_data()
+        self.destroy()
 
 
 def main():
