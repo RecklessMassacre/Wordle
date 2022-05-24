@@ -1,8 +1,9 @@
 import sqlite3
 from typing import Optional, Union
-from tkinter import Tk, Label, Frame, Button, PhotoImage, StringVar, Toplevel, Canvas, Scrollbar, Entry, Checkbutton
-import tkinter.constants as c
-from tkinter.messagebox import askokcancel, showinfo, WARNING, QUESTION
+from tkinter import Tk, Label, Frame, Button, PhotoImage, \
+    StringVar, Toplevel, Canvas, Scrollbar, Entry, Checkbutton
+from tkinter.constants import VERTICAL
+from tkinter.messagebox import askokcancel, showinfo, WARNING
 from random import sample
 from os.path import exists
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -10,227 +11,261 @@ from matplotlib.figure import Figure
 
 
 class DBHandler:
+    """Create object with connection to db (sqlite3)"""
+
     # committing after every query so i can see how db changes in console
     # errors cannot occur ... so fuck try except
-    def __init__(self, db_file):
+    def __init__(self, db_file: str):
+        """:param db_file: path to db file"""
         if not exists(db_file):
             raise sqlite3.Error("U lost y db lol")
 
-        self._conn = sqlite3.connect(db_file)
-        self._cur = self._conn.cursor()
-        self._on_connect()
+        self.__conn: sqlite3.Connection = sqlite3.connect(db_file)
+        self.__cur: sqlite3.Cursor = self.__conn.cursor()
+        self.__on_connect()
 
-        if not self.check_db_init():
-            self._setup_empty_db()
+        if not self.__check_db_init():
+            self.__setup_empty_db()
 
         # creates a list of callable funcs to change certain value
         # in distribution table
         # d is dict for interpreting numbers to column names
-        self.d = {
-            1: 'first',
-            2: 'second',
-            3: 'third',
-            4: 'fourth',
-            5: 'fifth',
-            6: 'sixth',
+        self.__d: dict = {
+            1: 'first', 2: 'second', 3: 'third',
+            4: 'fourth', 5: 'fifth', 6: 'sixth',
         }
-
-        self.func_arr = [
-            lambda i=i: self._cur.execute(
-                f"UPDATE distribution SET {self.d[i]}_try = {self.d[i]}_try + 1 "
+        self.__func_arr: list = [
+            lambda i=i: self.__cur.execute(
+                f"UPDATE distribution SET {self.__d[i]}_try = {self.__d[i]}_try + 1 "
                 f"WHERE user_id = (SELECT id FROM user WHERE is_current = 1)"
             ) for i in range(1, 7)
         ]
 
-    def check_db_init(self):
-        self._cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user'")
-        arr = self._cur.fetchall()
+    def __check_db_init(self) -> bool:
+        """Checks if db is initialized"""
+        self.__cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user'")
+        arr = self.__cur.fetchall()
 
         return True if arr else False
 
-    def _setup_empty_db(self):
-        self._cur.execute(
+    def __setup_empty_db(self):
+        """Setups empty tables in db (except table with words)"""
+        self.__cur.execute(
             "CREATE TABLE IF NOT EXISTS user (id INTEGER, nick_name TEXT NOT NULL, "
             "is_current INTEGER, PRIMARY KEY (id))"
         )
-        self._cur.execute(
+        self.__cur.execute(
             "CREATE TABLE IF NOT EXISTS stats (user_id INTEGER, played INTEGER, games_won INTEGER,"
             "games_lost INTEGER, current_streak INTEGER, max_streak INTEGER, FOREIGN KEY (user_id) "
             "REFERENCES user(id) ON DELETE CASCADE ON UPDATE NO ACTION)"
         )
-        self._cur.execute(
+        self.__cur.execute(
             "CREATE TABLE IF NOT EXISTS distribution (user_id INTEGER, first_try INTEGER, second_try INTEGER,"
             "third_try INTEGER, fourth_try INTEGER, fifth_try INTEGER, sixth_try INTEGER, FOREIGN KEY (user_id) "
             "REFERENCES user(id) ON DELETE CASCADE ON UPDATE NO ACTION)"
         )
-        self._cur.execute(
+        self.__cur.execute(
             "CREATE TABLE IF NOT EXISTS game_state (user_id INTEGER,k_state_string TEXT, "
             "l_state_string TEXT, word TEXT, FOREIGN KEY (user_id) REFERENCES user(id) "
             "ON DELETE CASCADE ON UPDATE NO ACTION)"
         )
 
-        self._cur.execute("CREATE TABLE IF NOT EXISTS autosave (activated INTEGER)")
-        self._cur.execute("INSERT INTO autosave (activated) VALUES (0)")
-        self._cur.execute(
+        self.__cur.execute("CREATE TABLE IF NOT EXISTS autosave (activated INTEGER)")
+        self.__cur.execute("INSERT INTO autosave (activated) VALUES (0)")
+        self.__cur.execute(
             "CREATE VIEW get_user AS SELECT u.nick_name, u.is_current, s.played, s.games_won, s.games_lost, "
             "s.current_streak, s.max_streak,d.first_try, d.second_try, d.third_try, d.fourth_try, d.fifth_try, "
-            "d.sixth_try, g.k_state_string, g.l_state_string, g.word FROM user u LEFT JOIN stats s on u.id = s.user_id "
-            "LEFT JOIN distribution d on u.id = d.user_id LEFT JOIN game_state g on u.id = g.user_id "
+            "d.sixth_try FROM user u LEFT JOIN stats s on u.id = s.user_id LEFT JOIN distribution d on u.id = d.user_id"
         )
-        self._conn.commit()
+        self.__conn.commit()
 
-    def _on_connect(self):
-        self._cur.execute("PRAGMA foreign_keys = ON")
-        self._conn.commit()
+    def __on_connect(self):
+        """Toggle on foreign keys in db"""
+        self.__cur.execute("PRAGMA foreign_keys = ON")
+        self.__conn.commit()
 
     def unset_current_user(self, nick_name):
-        self._cur.execute("UPDATE user set is_current = 0 WHERE nick_name =?", (nick_name, ))
-        self._conn.commit()
-        return True
+        """Unset current user in db"""
+        self.__cur.execute("UPDATE user set is_current = 0 WHERE nick_name =?", (nick_name,))
+        self.__conn.commit()
 
-    def get_current_user_nick(self):
-        self._cur.execute("SELECT nick_name FROM user WHERE is_current = 1")
-        tarr = self._cur.fetchall()
+    def get_current_user_nick(self) -> str:
+        """Get current user nick"""
+        self.__cur.execute("SELECT nick_name FROM user WHERE is_current = 1")
+        tarr = self.__cur.fetchall()
         if tarr:
             return tarr[0][0]
         else:
             return ''
 
-    def get_current_user(self):
-        """
-        All stuff for statistics window
-        """
-        self._cur.execute("SELECT * FROM get_user WHERE is_current = 1")
-        tarr = self._cur.fetchall()
+    def get_current_user(self) -> tuple:
+        """Get all stuff for statistics window"""
+        self.__cur.execute("SELECT * FROM get_user WHERE is_current = 1")
+        tarr = self.__cur.fetchall()
         if tarr:
             return tarr[0]
         else:
-            return []
+            return ()
 
-    def set_current_user(self, nick_name):
-        self._cur.execute("UPDATE user SET is_current = 1 WHERE nick_name = ?", (nick_name, ))
-        self._conn.commit()
-        return True
+    def set_current_user(self, username: str):
+        """Set user with provided username to be current in db"""
+        self.__cur.execute("UPDATE user SET is_current = 1 WHERE nick_name = ?", (username,))
+        self.__conn.commit()
 
-    def user_exists(self, nick_name):
-        self._cur.execute("SELECT nick_name FROM user WHERE nick_name = ?", (nick_name,))
-
-        arr = [item for item in self._cur.fetchall()]
-
+    def user_exists(self, username: str) -> bool:
+        """Check if user with provided username exists in db"""
+        self.__cur.execute("SELECT nick_name FROM user WHERE nick_name = ?", (username,))
+        arr = self.__cur.fetchall()
         return True if arr else False
 
-    def delete_user(self, nick_name):
-        self._cur.execute("DELETE FROM user WHERE nick_name = ?", (nick_name,))
-        self._conn.commit()
+    def delete_user(self, username):
+        """Delete user with provided username from db"""
+        self.__cur.execute("DELETE FROM user WHERE nick_name = ?", (username,))
+        self.__conn.commit()
 
-        return True
+    def add_user(self, username) -> bool:
+        """Add user with provided username to db
 
-    def add_user(self, nick_name):
-        if self.user_exists(nick_name):
+        returns:
+            False if user username already exists, True if user is added
+        """
+        if self.user_exists(username):
             return False
 
-        self._cur.execute("INSERT INTO user (nick_name, is_current) VALUES (?, 0)", (nick_name,))
-        self._cur.execute(
+        self.__cur.execute("INSERT INTO user (nick_name, is_current) VALUES (?, 0)", (username,))
+        self.__cur.execute(
             "INSERT INTO stats(user_id, played, games_won, games_lost, current_streak, max_streak)"
             "VALUES (last_insert_rowid(), 0, 0, 0, 0, 0)"
         )
-        self._cur.execute(
+        self.__cur.execute(
             "INSERT INTO distribution(user_id, first_try, second_try, third_try, fourth_try, fifth_try, sixth_try)"
             "VALUES (last_insert_rowid(), 0, 0, 0, 0, 0, 0)"
         )
-        self._cur.execute(
+        self.__cur.execute(
             'INSERT INTO game_state (user_id, k_state_string, l_state_string, word) '
             'VALUES (last_insert_rowid(), "", "", "")'
         )
-        self._conn.commit()
+        self.__conn.commit()
         return True
 
-    def get_users(self):
-        self._cur.execute("SELECT * FROM user")
+    def get_users(self) -> list[tuple]:
+        """Get all users from db
 
-        arr = self._cur.fetchall()
+        return:
+            list with tuples, each represents distinct user"""
+        self.__cur.execute("SELECT * FROM user")
+
+        arr = self.__cur.fetchall()
         return arr
 
-    def get_words(self):
-        self._cur.execute("SELECT * FROM words")
+    def get_words(self) -> list[str]:
+        """Get all words from db
 
-        arr = [item[0] for item in self._cur.fetchall()]
+        return:
+            list with words"""
+        self.__cur.execute("SELECT * FROM words")
+
+        arr = [item[0] for item in self.__cur.fetchall()]
         return arr
 
-    def get_autosave_opt(self):
-        self._cur.execute("SELECT * FROM autosave")
+    def get_autosave_opt(self) -> int:
+        """Get autosave option from db
 
-        arr = self._cur.fetchall()
-        return arr
+        returns:
+            1 = on, 0 = off"""
+        self.__cur.execute("SELECT * FROM autosave")
+        arr = self.__cur.fetchall()
+
+        return arr[0][0]
 
     def switch_autosave(self):
-        self._cur.execute("UPDATE autosave SET activated = not activated")
-        self._conn.commit()
+        """Switch autosave option in db"""
+        self.__cur.execute("UPDATE autosave SET activated = not activated")
+        self.__conn.commit()
 
     def add_loss(self):
-        self._cur.execute(
+        """Add loss to current user in db"""
+        self.__cur.execute(
             "UPDATE stats SET played = played + 1, games_lost = games_lost + 1, current_streak = 0 "
             "WHERE user_id = (SELECT id FROM user WHERE is_current = 1)"
         )
-        self._conn.commit()
-        return True
+        self.__conn.commit()
 
-    def add_win(self, cur_row):
-        self._cur.execute(
+    def add_win(self, cur_row: int):
+        """Add win to current user in db
+
+        param:
+            cur_row - current row when game was finished"""
+        self.__cur.execute(
             "UPDATE stats SET played = played + 1, games_won = games_won + 1, current_streak = current_streak + 1, "
             "max_streak = MAX(current_streak + 1, max_streak) WHERE user_id = "
             "(SELECT id FROM user WHERE is_current = 1) "
         )
 
-        self.func_arr[cur_row - 1]()
-        self._conn.commit()
-        return True
+        self.__func_arr[cur_row - 1]()
+        self.__conn.commit()
 
-    def save_state(self, btn, lbl, word):
-        self._cur.execute(
+    def save_state(self, btn: str, lbl: str, word: str):
+        """Save str representations of keyboard, labels and chosen word to db
+
+        params
+            btn - str representations of keyboard state
+
+            lbl - str representations of labels state
+            word - chosen word"""
+        self.__cur.execute(
             "UPDATE game_state SET k_state_string = ?, l_state_string = ?, word = ? " 
             "WHERE user_id = (SELECT id FROM user WHERE is_current = 1)", (btn, lbl, word)
         )
-        self._conn.commit()
+        self.__conn.commit()
 
-    def get_state(self):
-        self._cur.execute(
+    def get_state(self) -> tuple[str]:
+        """Get saved str representations of keyboard, labels and chosen word from db
+
+        return:
+            tuple with 3 elements:
+                1 - str representations of keyboard state
+
+                2 - str representations of labels states
+
+                3 - chosen word"""
+        self.__cur.execute(
             "SELECT k_state_string, l_state_string, word FROM game_state "
             "WHERE user_id = (SELECT id FROM user WHERE is_current = 1)"
         )
+        arr = self.__cur.fetchall()
+        return arr[0]
 
-        arr = self._cur.fetchall()
-        return arr
+    def check_state(self) -> bool:
+        """Check if there is a saved game in db
 
-    def check_state(self):
-        self._cur.execute(
+        returns:
+            True - yes
+
+            False - no"""
+        self.__cur.execute(
             "SELECT word FROM game_state "
             "WHERE user_id = (SELECT id FROM user WHERE is_current = 1)"
         )
 
-        tpl = self._cur.fetchone()
+        tpl = self.__cur.fetchone()
         if tpl:
             return True if tpl[0] else False
 
         return False
 
     def close(self):
-        self._conn.close()
+        """Close connection to db"""
+        self.__conn.close()
 
 
 class Wordle(Tk):
+    """Wordle game itself. Contains all the logic"""
     # architecture is shit
     def __init__(self, db_name: str):
         super().__init__()
         # sqlite3
         self.db_handler: DBHandler = DBHandler(db_name)
-
-        # current profile:
-        self.profile: str = self.get_current_user()
-
-        # root initialization
-        self.window_width: int = 820
-        self.window_length: int = 820
 
         # colors
         self.BASE_COLOR: str = '#f0f0f0'
@@ -254,93 +289,94 @@ class Wordle(Tk):
         self.DT_GREY: str = '#343434'
 
         # var for theme change
-        self.dark_theme_fl: bool = False
+        self.__dark_theme_fl: bool = False
 
         # game data
-        self.autosave: bool = self.load_autosave_opt()
+        self.__autosave: bool = self.__load_autosave_opt()
         self.ROW_AMOUNT: int = 6
-        self.row_length: int = 5
-        self.words_list: Optional[list[str]] = self.db_handler.get_words()  # all 5-letters words
-        self.chosen_word: str = sample(self.words_list, 1)[0].upper()  # word to guess
-        self.input_word: list[str] = [str() for _ in range(self.row_length)]
-        self.cur_row: int = 1
-        self.label_pointer: int = 0
-        self.game_flag: bool = True
+        self.ROW_LENGTH: int = 5
+        self.__words_list: Optional[list[str]] = self.db_handler.get_words()  # all 5-letters words
+        self.__chosen_word: str = sample(self.__words_list, 1)[0].upper()  # word to guess
+        self.__input_word: list[str] = [str() for _ in range(self.ROW_LENGTH)]
+        self.__cur_row: int = 1
+        self.__label_pointer: int = 0
+        self.__game_flag: bool = True
         # each number is alphabet position and each array position is keyboard position
-        self.numerical_keyboard: list[int] = [
+        self.__numerical_keyboard: list[int] = [
             10, 23, 20, 11, 5, 14, 3, 25, 26, 8, 22, 27,
             21, 28, 2, 0, 16, 17, 15, 12, 4, 7, 30, 6,
             32, 24, 18, 13, 9, 19, 29, 1, 31
         ]
 
         # zero size image, used to make labels quadratic
-        self.image: PhotoImage = PhotoImage()
+        self.__image: PhotoImage = PhotoImage()
 
         # frames definition
-        self.gfield_frame: Frame = Frame(self)
-        self.menu_frame_left: Frame = Frame(self)
-        self.menu_frame_right: Frame = Frame(self)
-        self.keyboard_frame: Frame = Frame(self)
-        self.messages_frame: Frame = Frame(self)
+        self.__gfield_frame: Frame = Frame(self)
+        self.__menu_frame_left: Frame = Frame(self)
+        self.__menu_frame_right: Frame = Frame(self)
+        self.__keyboard_frame: Frame = Frame(self)
+        self.__messages_frame: Frame = Frame(self)
 
         # labels and its requirements definition and initialization
         # message label
-        self.message_label: Optional[Label] = None
-        self.message_label_var: StringVar = StringVar()
-        self.message_label_var.set(
+        self.__message_label: Optional[Label] = None
+        self.__message_label_var: StringVar = StringVar()
+        self.__message_label_var.set(
             'Привет! Для ввода букв с клавиатуры нужно перевести раскладку на англ.\n'
             'Для ведения статистики нужно создать профиль'
         )
 
         # game field labels
-        self.labels_dict: dict[str, Label] = {}
-        self.text_vars: list[StringVar] = [StringVar() for _ in range(self.row_length * self.ROW_AMOUNT)]
-        self.init_labels()
+        self.__labels_dict: dict[str, Label] = {}
+        self.__text_vars: list[StringVar] = [StringVar() for _ in range(self.ROW_LENGTH * self.ROW_AMOUNT)]
+        self.__init_labels()
 
         # buttons and its requirements definition and initialization
-        self.alphabet: list[str] = [chr(i) for i in range(ord('а'), ord('а') + 6)] + \
-                                   [chr(ord('а') + 33)] + \
-                                   [chr(i) for i in range(ord('а') + 6, ord('а') + 32)]
-        # state: color
-        self.state_to_color_dict: dict[int, str] = {
+        self.__alphabet: list[str] = [chr(i) for i in range(ord('а'), ord('а') + 6)] + \
+                                     [chr(ord('а') + 33)] + \
+                                     [chr(i) for i in range(ord('а') + 6, ord('а') + 32)]
+
+        self.__state_to_color_dict: dict[int, str] = {
             0: self.BASE_BTN_COLOR, 1: self.GREY, 2: self.YELLOW, 3: self.GREEN
-        }
-        self.dt_state_to_color_dict: dict[int, str] = {
+        }  # state: color
+        self.__dt_state_to_color_dict: dict[int, str] = {
             0: self.DT_BTN_COLOR, 1: self.DT_GREY, 2: self.YELLOW, 3: self.GREEN
-        }
-        self.letter_to_button_name_dict: dict[str, str] = {
-            y: f'btn{x}' for x, y in enumerate(self.alphabet)
+        }  # state: color
+        self.__letter_to_button_name_dict: dict[str, str] = {
+            y: f'btn{x}' for x, y in enumerate(self.__alphabet)
         }  # letter: button name
-        self.buttons_states: dict[str, int] = dict.fromkeys(self.alphabet, 0)  # letters are not capital, letter: state
-        self.btn_dict: dict[str, Button] = {}  # button name: button object
-        self.clear_button: Optional[Button] = None
-        self.enter_button: Optional[Button] = None
-        self.ng_button: Optional[Button] = None
-        self.stat_button: Optional[Button] = None
-        self.settings_button: Optional[Button] = None
-        self.profile_button: Optional[Button] = None
+        self.__buttons_states: dict[str, int] = dict.fromkeys(self.__alphabet, 0)  # letter (not capital): state
+        self.__btn_dict: dict[str, Button] = {}  # button name: button object
+        self.__clear_button: Optional[Button] = None
+        self.__enter_button: Optional[Button] = None
+        self.__ng_button: Optional[Button] = None
+        self.__stat_button: Optional[Button] = None
+        self.__settings_button: Optional[Button] = None
+        self.__profile_button: Optional[Button] = None
 
-        self.init_buttons()
+        self.__init_buttons()
 
-        # root setup
-        self.root_setup()
+        # root initialization
+        self.__window_width: int = 820
+        self.__window_length: int = 820
+        self.__root_setup()
 
         # placing everything
-        self.place_frames()
-        self.place_labels()
-        self.place_buttons()
+        self.__place_frames()
+        self.__place_labels()
+        self.__place_buttons()
 
-        self.load_ans_flag = None
-        self.ask_load_game()
+        self.__ask_load_game()
 
-        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.protocol("WM_DELETE_WINDOW", self.__on_closing)
 
-    def ask_load_game(self):
-        if self.autosave:
+    def __ask_load_game(self):
+        if self.__autosave:
             if self.db_handler.check_state():
-                self.create_ask_load_window()
+                self.__create_ask_load_window()
 
-    def create_ask_load_window(self):
+    def __create_ask_load_window(self):
         width, length = 300, 100
         oc_window = OkCancelWindow(width, length, self)
         self.center_window(oc_window, width, length)
@@ -350,10 +386,11 @@ class Wordle(Tk):
         self.lift()
 
     def init_game_data(self):
+        """Load last saved game and substitute current data with loaded"""
         raw = self.db_handler.get_state()
         lbl, btn = {}, {}
         # [:-1] cuts last separator
-        btn_raw, lbl_raw, word = raw[0][0][:-1].split('|'), raw[0][1][:-1].split('|'), raw[0][2]
+        btn_raw, lbl_raw, word = raw[0][:-1].split('|'), raw[1][:-1].split('|'), raw[2]
 
         for item in btn_raw:
             temp = item.split(":")
@@ -373,130 +410,152 @@ class Wordle(Tk):
 
             pointer += 1
 
-        self.cur_row = pointer // self.row_length + 1
-        self.label_pointer = pointer
-        self.buttons_states = btn
-        self.chosen_word = word
+        self.__cur_row = pointer // self.ROW_LENGTH + 1
+        self.__label_pointer = pointer
+        self.__buttons_states = btn
+        self.__chosen_word = word
 
         # paint buttons
-        for letter, state in self.buttons_states.items():
-            btn_name = self.letter_to_button_name_dict[letter]
-            color = self.state_to_color_dict[state]
-            self.btn_dict[btn_name].config(bg=color)
+        for letter, state in self.__buttons_states.items():
+            btn_name = self.__letter_to_button_name_dict[letter]
+            color = self.__state_to_color_dict[state]
+            self.__btn_dict[btn_name].config(bg=color)
 
         # put letters in labels and paint them
         for i in range(self.ROW_AMOUNT):
-            for j in range(self.row_length):
+            for j in range(self.ROW_LENGTH):
                 color, letter = lbl[f'lbl{i}{j}'].split(":")
                 if letter:
                     ltr_color = self.PAINTED_LETTERS_COLOR
                 else:
                     ltr_color = self.BASE_LETTERS_COLOR
-                self.labels_dict[f'lbl{i}{j}'].config(bg=color, fg=ltr_color)
-                self.text_vars[self.row_length * i + j].set(letter)
+                self.__labels_dict[f'lbl{i}{j}'].config(bg=color, fg=ltr_color)
+                self.__text_vars[self.ROW_LENGTH * i + j].set(letter)
 
-    def load_autosave_opt(self):
-        raw = self.db_handler.get_autosave_opt()
-        value = raw[0][0]
+    def __load_autosave_opt(self):
+        value = self.db_handler.get_autosave_opt()
         return True if value else False
 
     def change_autosave(self):
-        self.autosave = not self.autosave
+        """Switch autosave option both in db and wordle app"""
+        self.__autosave = not self.__autosave
         self.db_handler.switch_autosave()
 
-    def get_current_user(self):
+    def get_current_user(self) -> str:
+        """Get current user's username from db
+
+        return:
+            string with current username"""
         current = self.db_handler.get_current_user_nick()
-        if current:
-            return current
+        return current
 
-        return ""
+    def get_autosave_opt(self) -> bool:
+        """Get autosave option
 
-    def set_current_profile(self, p_name):
-        self.profile = p_name
+        return:
+            True - enabled
 
-    def on_closing(self):
-        if self.autosave and self.game_flag:
-            self.save_cur_game()
+            False - disabled"""
+        return self.__autosave
+
+    def __on_closing(self):
+        if self.__autosave and self.__game_flag:
+            self.__save_cur_game()
 
         # closing connection to db explicitly just in case
         self.db_handler.close()
         self.destroy()
 
-    def save_cur_game(self):
+    def __save_cur_game(self):
         # to save only light mode data
-        if self.dark_theme_fl:
-            self.set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR, self.BASE_LBL_COLOR, self.BASE_BTN_COLOR)
+        if self.__dark_theme_fl:
+            self.__set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR, self.BASE_LBL_COLOR, self.BASE_BTN_COLOR)
 
         colors_letters = {}
 
         for i in range(self.ROW_AMOUNT):
-            for j in range(self.row_length):
-                colors_letters[f'lbl{i}{j}'] = f"{self.labels_dict[f'lbl{i}{j}'].cget('bg')}:" \
-                                               f"{self.labels_dict[f'lbl{i}{j}'].cget('text')}"
+            for j in range(self.ROW_LENGTH):
+                colors_letters[f'lbl{i}{j}'] = f"{self.__labels_dict[f'lbl{i}{j}'].cget('bg')}:" \
+                                               f"{self.__labels_dict[f'lbl{i}{j}'].cget('text')}"
 
         btn, lbl = "", ""
         for key, value in colors_letters.items():
             lbl += f'{key}:{value}|'
 
-        for key, value in self.buttons_states.items():
+        for key, value in self.__buttons_states.items():
             btn += f'{key}:{value}|'
 
-        self.db_handler.save_state(btn, lbl, self.chosen_word)
+        self.db_handler.save_state(btn, lbl, self.__chosen_word)
 
-    def get_current_theme(self):
-        return self.dark_theme_fl
+    def get_current_theme(self) -> bool:
+        """Get current color theme of main wordle window
+
+        return:
+            False - light theme
+
+            True - dark theme"""
+        return self.__dark_theme_fl
 
     def change_color_theme(self):
-        if self.dark_theme_fl:
-            self.set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR, self.BASE_LBL_COLOR, self.BASE_BTN_COLOR)
+        """Change color theme and it's flag to opposite in main wordle window"""
+        if self.__dark_theme_fl:
+            self.__set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR, self.BASE_LBL_COLOR, self.BASE_BTN_COLOR)
         else:
-            self.set_theme(self.DT_BASE_COLOR, self.PAINTED_LETTERS_COLOR, self.DT_LBL_COLOR, self.DT_BTN_COLOR)
+            self.__set_theme(self.DT_BASE_COLOR, self.PAINTED_LETTERS_COLOR, self.DT_LBL_COLOR, self.DT_BTN_COLOR)
 
-        self.dark_theme_fl = not self.dark_theme_fl
+        self.__dark_theme_fl = not self.__dark_theme_fl
 
-    def set_theme(self, bg_color, ltr_color, lbl_color, btn_color):
-        for i, item in enumerate(self.labels_dict.values()):
-            if i < self.label_pointer:
+    def __set_theme(self, bg_color: str, ltr_color: str, lbl_color: str, btn_color: str):
+        for i, item in enumerate(self.__labels_dict.values()):
+            if i < self.__label_pointer:
                 continue
 
             item.config(bg=lbl_color, fg=ltr_color)
 
-        if self.dark_theme_fl:
-            for letter, state in self.buttons_states.items():
-                btn_name = self.letter_to_button_name_dict[letter]
-                color = self.state_to_color_dict[state]
-                self.btn_dict[btn_name].config(bg=color, fg=ltr_color)
+        if self.__dark_theme_fl:
+            for letter, state in self.__buttons_states.items():
+                btn_name = self.__letter_to_button_name_dict[letter]
+                color = self.__state_to_color_dict[state]
+                self.__btn_dict[btn_name].config(bg=color, fg=ltr_color)
         else:
-            for letter, state in self.buttons_states.items():
-                btn_name = self.letter_to_button_name_dict[letter]
-                color = self.dt_state_to_color_dict[state]
-                self.btn_dict[btn_name].config(bg=color, fg=ltr_color)
+            for letter, state in self.__buttons_states.items():
+                btn_name = self.__letter_to_button_name_dict[letter]
+                color = self.__dt_state_to_color_dict[state]
+                self.__btn_dict[btn_name].config(bg=color, fg=ltr_color)
 
         self.config(bg=bg_color)
-        self.menu_frame_left.config(bg=bg_color)
-        self.menu_frame_right.config(bg=bg_color)
-        self.gfield_frame.config(bg=bg_color)
-        self.keyboard_frame.config(bg=bg_color)
-        self.messages_frame.config(bg=bg_color)
+        self.__menu_frame_left.config(bg=bg_color)
+        self.__menu_frame_right.config(bg=bg_color)
+        self.__gfield_frame.config(bg=bg_color)
+        self.__keyboard_frame.config(bg=bg_color)
+        self.__messages_frame.config(bg=bg_color)
 
-        self.message_label.config(bg=bg_color, fg=ltr_color)
-        self.enter_button.config(bg=btn_color, fg=ltr_color)
-        self.clear_button.config(bg=btn_color, fg=ltr_color)
-        self.stat_button.config(bg=btn_color, fg=ltr_color)
-        self.settings_button.config(bg=btn_color, fg=ltr_color)
-        self.ng_button.config(bg=btn_color, fg=ltr_color)
-        self.profile_button.config(bg=btn_color, fg=ltr_color)
+        self.__message_label.config(bg=bg_color, fg=ltr_color)
+        self.__enter_button.config(bg=btn_color, fg=ltr_color)
+        self.__clear_button.config(bg=btn_color, fg=ltr_color)
+        self.__stat_button.config(bg=btn_color, fg=ltr_color)
+        self.__settings_button.config(bg=btn_color, fg=ltr_color)
+        self.__ng_button.config(bg=btn_color, fg=ltr_color)
+        self.__profile_button.config(bg=btn_color, fg=ltr_color)
 
     @staticmethod
-    def center_window(window, w_width, w_length):
-        x = window.winfo_screenwidth() // 2 - w_width // 2
-        y = window.winfo_screenheight() // 2 - w_length // 2
-        window.geometry(f"{w_width}x{w_length}+{x}+{y}")
+    def center_window(window, w_width: int, w_height: int):
+        """Centers tk window in the middle of the screen
 
-    def root_setup(self):
+        params:
+            window - tk based window
+
+            w_width - width of window
+
+            w_length - height of window"""
+        x = window.winfo_screenwidth() // 2 - w_width // 2
+        y = window.winfo_screenheight() // 2 - w_height // 2
+        window.geometry(f"{w_width}x{w_height}+{x}+{y}")
+
+    def __root_setup(self):
         self.title("Wordle")
-        self.center_window(self, self.window_width, self.window_length)
-        self.minsize(width=self.window_width, height=self.window_length)
+        self.center_window(self, self.__window_width, self.__window_length)
+        self.minsize(width=self.__window_width, height=self.__window_length)
 
         # lets root to fill all remaining space, so main frame will always be centered
         self.grid_columnconfigure(0, weight=1)
@@ -506,66 +565,66 @@ class Wordle(Tk):
         for i in range(33):
             self.bind(
                 eng_keyboard[i],
-                lambda event, ru_letter=self.alphabet[self.numerical_keyboard[i]].upper(): self.button_click(ru_letter)
+                lambda event, ru_ltr=self.__alphabet[self.__numerical_keyboard[i]].upper(): self.__button_click(ru_ltr)
             )
         # for Caps Lock
         for i in range(33):
             self.bind(
                 eng_keyboard[i].upper(),
-                lambda event, ru_letter=self.alphabet[self.numerical_keyboard[i]].upper(): self.button_click(ru_letter)
+                lambda event, ru_ltr=self.__alphabet[self.__numerical_keyboard[i]].upper(): self.__button_click(ru_ltr)
             )
 
-        self.bind("<BackSpace>", lambda event: self.clear())
-        self.bind("<Return>", lambda event: self.enter())
+        self.bind("<BackSpace>", lambda event: self.__clear())
+        self.bind("<Return>", lambda event: self.__enter())
 
-    def init_labels(self):
+    def __init_labels(self):
         for i in range(self.ROW_AMOUNT):
-            for j in range(self.row_length):
-                self.labels_dict[f'lbl{i}{j}'] = Label(
-                    self.gfield_frame, font=('Arial bold', 20), background='white',
-                    width=60, height=60, image=self.image, compound='center',
-                    textvariable=self.text_vars[self.row_length * i + j]
+            for j in range(self.ROW_LENGTH):
+                self.__labels_dict[f'lbl{i}{j}'] = Label(
+                    self.__gfield_frame, font=('Arial bold', 20), background='white',
+                    width=60, height=60, image=self.__image, compound='center',
+                    textvariable=self.__text_vars[self.ROW_LENGTH * i + j]
                 )
 
-        self.message_label = Label(
-            self.messages_frame, width=100, height=2, textvariable=self.message_label_var,
+        self.__message_label = Label(
+            self.__messages_frame, width=100, height=2, textvariable=self.__message_label_var,
             font=('Arial', 10)
         )
 
-    def init_buttons(self):
+    def __init_buttons(self):
         for i in range(33):
-            letter = self.alphabet[i].upper()
+            letter = self.__alphabet[i].upper()
 
-            self.btn_dict[f"btn{i}"] = Button(
-                self.keyboard_frame, text=letter, font=("Arial bold", 11),
-                command=lambda a=letter: self.button_click(a)
+            self.__btn_dict[f"btn{i}"] = Button(
+                self.__keyboard_frame, text=letter, font=("Arial bold", 11),
+                command=lambda a=letter: self.__button_click(a)
             )
 
-        self.clear_button = Button(
-            self.keyboard_frame, text="Очистить", font=("Arial bold", 11), command=self.clear
+        self.__clear_button = Button(
+            self.__keyboard_frame, text="Очистить", font=("Arial bold", 11), command=self.__clear
         )
-        self.enter_button = Button(
-            self.keyboard_frame, text="Ввод ", font=("Arial bold", 11), command=self.enter
+        self.__enter_button = Button(
+            self.__keyboard_frame, text="Ввод ", font=("Arial bold", 11), command=self.__enter
         )
 
         # menu frame
-        self.profile_button = Button(
-            self.menu_frame_left, height=1, width=5, text="Профили", command=self.show_profile
+        self.__profile_button = Button(
+            self.__menu_frame_left, height=1, width=5, text="Профили", command=self.__show_profile
         )
-        self.ng_button = Button(
-            self.menu_frame_left, height=1, width=5, text="Заново", command=self.new_game
+        self.__ng_button = Button(
+            self.__menu_frame_left, height=1, width=5, text="Заново", command=self.__new_game
         )
-        self.stat_button = Button(
-            self.menu_frame_right, height=1, width=5, text="Статистика", command=self.show_stats
+        self.__stat_button = Button(
+            self.__menu_frame_right, height=1, width=5, text="Статистика", command=self.__show_stats
         )
-        self.settings_button = Button(
-            self.menu_frame_right, height=1, width=5, text="Параметры", command=self.show_settings
+        self.__settings_button = Button(
+            self.__menu_frame_right, height=1, width=5, text="Параметры", command=self.__show_settings
         )
 
     # seems like ctrl+c ctrl+v, but im not sure that i should have
     # 1 func and pass params to it to create windows rather that
     # have several distinct funcs, one for each window, even though they are similar
-    def show_profile(self):
+    def __show_profile(self):
         width, length = 400, 500
         p_window = Profiles(width, length, self)
         self.center_window(p_window, width, length)
@@ -573,7 +632,7 @@ class Wordle(Tk):
         # lock root window
         p_window.grab_set()
 
-    def show_settings(self):
+    def __show_settings(self):
         width, length = 400, 300
         set_window = Settings(width, length, self)
         self.center_window(set_window, width, length)
@@ -581,7 +640,7 @@ class Wordle(Tk):
         # lock root window
         set_window.grab_set()
 
-    def show_stats(self):
+    def __show_stats(self):
         width, length = 400, 500
         st_window = Statistics(width, length, self)
         self.center_window(st_window, width, length)
@@ -589,47 +648,47 @@ class Wordle(Tk):
         # lock root window
         st_window.grab_set()
 
-    def place_frames(self):
+    def __place_frames(self):
         self.grid_rowconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=5)
 
-        self.menu_frame_left.grid(row=0, sticky="NW")
-        self.menu_frame_right.grid(row=0, sticky="NE")
+        self.__menu_frame_left.grid(row=0, sticky="NW")
+        self.__menu_frame_right.grid(row=0, sticky="NE")
 
-        self.gfield_frame.grid(sticky="NS")
-        self.messages_frame.grid(sticky="S")
-        self.keyboard_frame.grid(sticky="S")
+        self.__gfield_frame.grid(sticky="NS")
+        self.__messages_frame.grid(sticky="S")
+        self.__keyboard_frame.grid(sticky="S")
 
-    def place_labels(self):
+    def __place_labels(self):
         for i in range(self.ROW_AMOUNT):
-            for j in range(self.row_length):
-                self.labels_dict[f'lbl{i}{j}'].grid(column=j, row=i, padx=10, pady=10)
+            for j in range(self.ROW_LENGTH):
+                self.__labels_dict[f'lbl{i}{j}'].grid(column=j, row=i, padx=10, pady=10)
 
-        self.message_label.grid()
+        self.__message_label.grid()
 
-    def place_buttons(self):
+    def __place_buttons(self):
         # keyboard frame
         # one button = 2 colons as default
         for i in range(0, 48, 2):
-            self.btn_dict[f"btn{self.numerical_keyboard[i // 2]}"].grid(
+            self.__btn_dict[f"btn{self.__numerical_keyboard[i // 2]}"].grid(
                 padx=10, pady=10, ipadx=10, ipady=10, column=i % 24, row=i // 24, columnspan=2
             )
-        self.enter_button.grid(padx=10, pady=10, ipadx=10, ipady=10, column=0, row=2, columnspan=3, sticky='W')
+        self.__enter_button.grid(padx=10, pady=10, ipadx=10, ipady=10, column=0, row=2, columnspan=3, sticky='W')
 
         for i in range(50, 68, 2):
-            self.btn_dict[f"btn{self.numerical_keyboard[i // 2 - 1]}"].grid(
+            self.__btn_dict[f"btn{self.__numerical_keyboard[i // 2 - 1]}"].grid(
                 padx=10, pady=10, ipadx=10, ipady=10, column=i % 24 + 1, row=i // 24, columnspan=2
             )
-        self.clear_button.grid(padx=10, pady=10, ipadx=10, ipady=10, column=21, row=2, columnspan=3, sticky='E')
+        self.__clear_button.grid(padx=10, pady=10, ipadx=10, ipady=10, column=21, row=2, columnspan=3, sticky='E')
 
         # menu frame
-        self.ng_button.grid(ipadx=20, ipady=5, column=0, row=0)
-        self.stat_button.grid(ipadx=20, ipady=5, column=0, row=0)
-        self.settings_button.grid(ipadx=20, ipady=5, column=1, row=0)
-        self.profile_button.grid(ipadx=20, ipady=5, column=1, row=0)
+        self.__ng_button.grid(ipadx=20, ipady=5, column=0, row=0)
+        self.__stat_button.grid(ipadx=20, ipady=5, column=0, row=0)
+        self.__settings_button.grid(ipadx=20, ipady=5, column=1, row=0)
+        self.__profile_button.grid(ipadx=20, ipady=5, column=1, row=0)
 
     @staticmethod
-    def _to_dict(word: Union[list, str]) -> dict:
+    def __to_dict(word: Union[list, str]) -> dict:
         s = {}
         for i, item in enumerate(word):
             if item not in s.keys():
@@ -640,7 +699,7 @@ class Wordle(Tk):
 
         return s
 
-    def alg_cmp(self, a: Union[list, str], b: Union[list, str]) -> list[int]:
+    def __alg_cmp(self, a: Union[list, str], b: Union[list, str]) -> list[int]:
         """
         :param a: hidden word
         :param b: input word
@@ -648,8 +707,8 @@ class Wordle(Tk):
         """
         # that shit works
         s = [1 for _ in range(len(a))]
-        a_dict = self._to_dict(a)
-        b_dict = self._to_dict(b)
+        a_dict = self.__to_dict(a)
+        b_dict = self.__to_dict(b)
         d = []
         for key, value in b_dict.items():
             # looking for all 3s:
@@ -680,25 +739,25 @@ class Wordle(Tk):
 
         return s
 
-    def paint_row(self, states: list):
-        i = self.label_pointer // self.row_length - 1
+    def __paint_row(self, states: list):
+        i = self.__label_pointer // self.ROW_LENGTH - 1
         for j in range(len(states)):
             state = states[j]
-            color = self.state_to_color_dict[state]
-            self.labels_dict[f"lbl{i}{j}"].config(bg=color, fg=self.PAINTED_LETTERS_COLOR)
+            color = self.__state_to_color_dict[state]
+            self.__labels_dict[f"lbl{i}{j}"].config(bg=color, fg=self.PAINTED_LETTERS_COLOR)
 
-    def unlock_next_row(self):
+    def __unlock_next_row(self):
         # increment coefficient for allowing typing in the next row
         # and disallowing erasing previous one
-        self.cur_row += 1
+        self.__cur_row += 1
 
-    def paint_keyboard_letters(self, states: list[int]):
+    def __paint_keyboard_letters(self, states: list[int]):
         # creating better representation of states
         # which shows it in a way: letter: state
         # since higher states override lower ones
         # for the same letter
         st_dict = {}
-        for i, item in enumerate(self.input_word):
+        for i, item in enumerate(self.__input_word):
             if item not in st_dict.keys():
                 st_dict[item] = states[i]
             elif st_dict[item] < states[i]:
@@ -711,176 +770,178 @@ class Wordle(Tk):
         # 3 - green letter, presented in the word, in the exact place, never to be overridden
         for letter, state in st_dict.items():
             letter = letter.lower()
-            if self.buttons_states[letter] == 0:
-                self.buttons_states[letter] = state
-            elif self.buttons_states[letter] == 2:
+            if self.__buttons_states[letter] == 0:
+                self.__buttons_states[letter] = state
+            elif self.__buttons_states[letter] == 2:
                 if state == 3:
-                    self.buttons_states[letter] = 3
+                    self.__buttons_states[letter] = 3
 
             # now to reconfigure button color
-            if self.dark_theme_fl:
-                abs_state = self.buttons_states[letter]
-                color = self.dt_state_to_color_dict[abs_state]
-                btn_name = self.letter_to_button_name_dict[letter]
-                self.btn_dict[btn_name].configure(bg=color)
+            if self.__dark_theme_fl:
+                abs_state = self.__buttons_states[letter]
+                color = self.__dt_state_to_color_dict[abs_state]
+                btn_name = self.__letter_to_button_name_dict[letter]
+                self.__btn_dict[btn_name].configure(bg=color)
             else:
-                abs_state = self.buttons_states[letter]
-                color = self.state_to_color_dict[abs_state]
-                btn_name = self.letter_to_button_name_dict[letter]
-                self.btn_dict[btn_name].configure(bg=color)
+                abs_state = self.__buttons_states[letter]
+                color = self.__state_to_color_dict[abs_state]
+                btn_name = self.__letter_to_button_name_dict[letter]
+                self.__btn_dict[btn_name].configure(bg=color)
 
-    def valid_word(self):
+    def __valid_word(self):
         # comparing words
-        states = self.alg_cmp(self.chosen_word, self.input_word)
-        print(f'chosen | guess: {self.chosen_word} | {"".join(self.input_word)}')
+        states = self.__alg_cmp(self.__chosen_word, self.__input_word)
+        print(f'chosen | guess: {self.__chosen_word} | {"".join(self.__input_word)}')
 
         # painting everything
-        self.paint_row(states)
-        self.paint_keyboard_letters(states)
+        self.__paint_row(states)
+        self.__paint_keyboard_letters(states)
 
         # checking whether its a win, a loss, or to proceed to the next row
         if states == [3, 3, 3, 3, 3]:
-            self.congratulate()
-        elif self.cur_row == 6:
-            self.game_over()
+            self.__congratulate()
+        elif self.__cur_row == 6:
+            self.__game_over()
         else:
-            self.unlock_next_row()
+            self.__unlock_next_row()
 
-    def check_full_row(self):
-        if self.label_pointer == 0:
+    def __check_full_row(self):
+        if self.__label_pointer == 0:
             return False
 
-        if self.label_pointer % self.row_length == 0 and self.cur_row == self.label_pointer // self.row_length:
+        if self.__label_pointer % self.ROW_LENGTH == 0 and self.__cur_row == self.__label_pointer // self.ROW_LENGTH:
             return True
         return False
 
-    def check_word_in_dict(self):
-        word = ''.join(self.input_word).lower()
-        if word in self.words_list:
+    def __check_word_in_dict(self):
+        word = ''.join(self.__input_word).lower()
+        if word in self.__words_list:
             return True
         return False
 
-    def get_input_word(self):
-        for i in range((self.cur_row - 1) * self.row_length, self.cur_row * self.row_length):
-            self.input_word[i % self.row_length] = self.text_vars[i].get()
+    def __get_input_word(self):
+        for i in range((self.__cur_row - 1) * self.ROW_LENGTH, self.__cur_row * self.ROW_LENGTH):
+            self.__input_word[i % self.ROW_LENGTH] = self.__text_vars[i].get()
 
-    def enter(self):
-        if self.game_flag:
+    def __enter(self):
+        if self.__game_flag:
             # if current row is not full
-            if not self.check_full_row():
-                self.message_label_var.set('Мало букв')
+            if not self.__check_full_row():
+                self.__message_label_var.set('Мало букв')
             else:
-                self.get_input_word()
+                self.__get_input_word()
 
                 # if row is full, but word is not valid
-                if not self.check_word_in_dict():
-                    self.message_label_var.set('Такого слова нет в словаре')
+                if not self.__check_word_in_dict():
+                    self.__message_label_var.set('Такого слова нет в словаре')
 
                 # if row is full and word is valid
                 else:
-                    self.valid_word()
+                    self.__valid_word()
 
-    def clear(self):
-        if self.game_flag:
+    def __clear(self):
+        if self.__game_flag:
             # clearing message label
-            self.message_label_var.set('')
+            self.__message_label_var.set('')
 
             # Checking if its allowed to erase
             # (label pointer points at label within range + 1 of current row)
-            if (self.cur_row - 1) * self.row_length < self.label_pointer <= self.cur_row * self.row_length:
+            if (self.__cur_row - 1) * self.ROW_LENGTH < self.__label_pointer <= self.__cur_row * self.ROW_LENGTH:
                 # clearing single letter label
-                current = self.label_pointer - 1
-                self.text_vars[current].set('')
+                current = self.__label_pointer - 1
+                self.__text_vars[current].set('')
 
                 # decrementing label pointer
-                self.label_pointer -= 1
+                self.__label_pointer -= 1
 
-    def button_click(self, letter: str):
-        if self.game_flag:
+    def __button_click(self, letter: str):
+        if self.__game_flag:
             # erase message in message label
-            self.message_label_var.set('')
+            self.__message_label_var.set('')
 
             # checking whether its allowed to type in the next row
-            if self.label_pointer < self.cur_row * 5:
+            if self.__label_pointer < self.__cur_row * 5:
                 # putting letter in the label
-                self.text_vars[self.label_pointer].set(letter)
+                self.__text_vars[self.__label_pointer].set(letter)
 
                 # incrementing label pointer
-                self.label_pointer += 1
+                self.__label_pointer += 1
 
-    def re_init_labels(self):
-        for item in self.text_vars:
+    def __re_init_labels(self):
+        for item in self.__text_vars:
             item.set('')
 
-        if self.dark_theme_fl:
+        if self.__dark_theme_fl:
             bg_color = self.DT_LBL_COLOR
             ltr_color = self.DT_LETTERS_COLOR
         else:
             bg_color = self.BASE_LBL_COLOR
             ltr_color = self.BASE_LETTERS_COLOR
 
-        for item in self.labels_dict.values():
+        for item in self.__labels_dict.values():
             item.config(bg=bg_color, fg=ltr_color)
 
-        self.message_label_var.set('')
+        self.__message_label_var.set('')
 
-    def re_init_buttons(self):
-        if self.dark_theme_fl:
+    def __re_init_buttons(self):
+        if self.__dark_theme_fl:
             bg_color = self.DT_BTN_COLOR
             ltr_color = self.DT_LETTERS_COLOR
         else:
             bg_color = self.BASE_BTN_COLOR
             ltr_color = self.BASE_LETTERS_COLOR
 
-        for item in self.btn_dict.values():
+        for item in self.__btn_dict.values():
             item.config(bg=bg_color, fg=ltr_color)
 
-    def congratulate(self):
+    def __congratulate(self):
         # deleting last game
-        self.db_handler.add_win(self.cur_row)
+        self.db_handler.add_win(self.__cur_row)
 
         self.db_handler.save_state("", "", "")
-        self.message_label_var.set(f'Поздраляю! Загадано было слово: {self.chosen_word}\nДля начала новой игры '
-                                   f'нажмите кнопку "заново".')
-        self.game_flag = False
+        self.__message_label_var.set(f'Поздраляю! Загадано было слово: {self.__chosen_word}\nДля начала новой игры '
+                                     f'нажмите кнопку "заново".')
+        self.__game_flag = False
 
-    def new_game(self):
+    def __new_game(self):
         # resetting game variables
-        self.game_flag = True
-        self.label_pointer = 0
-        self.chosen_word = sample(self.words_list, 1)[0].upper()
-        self.cur_row = 1
-        self.buttons_states = dict.fromkeys(self.alphabet, 0)
+        self.__game_flag = True
+        self.__label_pointer = 0
+        self.__chosen_word = sample(self.__words_list, 1)[0].upper()
+        self.__cur_row = 1
+        self.__buttons_states = dict.fromkeys(self.__alphabet, 0)
 
         # clear labels
-        self.re_init_labels()
+        self.__re_init_labels()
 
         # clear buttons colors
-        self.re_init_buttons()
+        self.__re_init_buttons()
 
         # deleting last game
         self.db_handler.save_state("", "", "")
 
-    def game_over(self):
+    def __game_over(self):
         self.db_handler.add_loss()
-        self.message_label_var.set(f'Какая жалость! Загадано было слово: {self.chosen_word}\nДля начала новой игры '
-                                   f'нажмите кнопку "Заново".')
-        self.game_flag = False
+        self.__message_label_var.set(f'Какая жалость! Загадано было слово: {self.__chosen_word}\nДля начала новой игры '
+                                     f'нажмите кнопку "Заново".')
+        self.__game_flag = False
 
     def run(self):
+        """Run app"""
         self.mainloop()
 
 
 class Statistics(Toplevel):
-    def __init__(self, width: int, length: int, root: Optional[Wordle] = None):
+    """Statistics window"""
+    def __init__(self, width: int, length: int, root: Wordle):
         super().__init__(root)
-        self.root: Optional[Wordle] = root
+        self.root: Wordle = root
         self.title("Статистика")
         self.grid_columnconfigure(0, weight=1)
         self.minsize(width=width, height=length)
         self.resizable(False, False)
 
-        self.data: dict = self.get_data()
+        self.__data: dict = self.__get_data()
 
         # colors
         self.BASE_COLOR: str = '#f0f0f0'
@@ -893,62 +954,60 @@ class Statistics(Toplevel):
         self.DT_BAR_COLOR: str = '#656565'
 
         # frames
-        self.upper_frame: Frame = Frame(self)
-        self.lower_frame: Frame = Frame(self)
+        self.__upper_frame: Frame = Frame(self)
+        self.__lower_frame: Frame = Frame(self)
 
         # upper frame labels and vars
-        self.upper_head_lbl: Label = Label(self.upper_frame, text="СТАТИСТИКА", font=("Arial bold", 18))
+        self.__upper_head_lbl: Label = Label(self.__upper_frame, text="СТАТИСТИКА", font=("Arial bold", 18))
 
         # 0 - 2 columns
-        self.g_played_number_var: StringVar = StringVar()
-        self.g_played_number_var.set(f"{self.data['played']}")
-        self.g_played_number_lbl: Label = Label(
-            self.upper_frame, font=("Arial bold", 18), textvariable=self.g_played_number_var
+        self.__g_played_number_var: StringVar = StringVar()
+        self.__g_played_number_var.set(f"{self.__data['played']}")
+        self.__g_played_number_lbl: Label = Label(
+            self.__upper_frame, font=("Arial bold", 18), textvariable=self.__g_played_number_var
         )
-        self.g_played_text_lbl: Label = Label(self.upper_frame, text="Сыграно")
+        self.__g_played_text_lbl: Label = Label(self.__upper_frame, text="Сыграно")
 
         # 3 - 5 columns
-        self.winrate_number_var: StringVar = StringVar()
-        if self.data['played'] == 0:
-            self.winrate_number_var.set(
-                "0"
-            )
+        self.__winrate_number_var: StringVar = StringVar()
+        if self.__data['played'] == 0:
+            self.__winrate_number_var.set("0")
         else:
-            self.winrate_number_var.set(
-                f"{round((self.data['games_won'] / self.data['played']) * 100)}"
+            self.__winrate_number_var.set(
+                f"{round((self.__data['games_won'] / self.__data['played']) * 100)}"
             )
 
-        self.winrate_number_lbl: Label = Label(
-            self.upper_frame, font=("Arial bold", 18), textvariable=self.winrate_number_var
+        self.__winrate_number_lbl: Label = Label(
+            self.__upper_frame, font=("Arial bold", 18), textvariable=self.__winrate_number_var
         )
-        self.winrate_text_lbl: Label = Label(self.upper_frame, text="% побед")
+        self.__winrate_text_lbl: Label = Label(self.__upper_frame, text="% побед")
 
         # 6 - 8 columns
-        self.cur_streak_number_var: StringVar = StringVar()
-        self.cur_streak_number_var.set(f'{self.data["current_streak"]}')
-        self.cur_streak_number_lbl: Label = Label(
-            self.upper_frame, font=("Arial bold", 18), textvariable=self.cur_streak_number_var
+        self.__cur_streak_number_var: StringVar = StringVar()
+        self.__cur_streak_number_var.set(f'{self.__data["current_streak"]}')
+        self.__cur_streak_number_lbl: Label = Label(
+            self.__upper_frame, font=("Arial bold", 18), textvariable=self.__cur_streak_number_var
         )
-        self.cur_streak_text_lbl: Label = Label(self.upper_frame, text="Тек. серия\nпобед")
+        self.__cur_streak_text_lbl: Label = Label(self.__upper_frame, text="Тек. серия\nпобед")
 
         # 9 - 11 columns
-        self.max_streak_number_var: StringVar = StringVar()
-        self.max_streak_number_var.set(f'{self.data["max_streak"]}')
-        self.max_streak_number_lbl: Label = Label(
-            self.upper_frame, font=("Arial bold", 18), textvariable=self.max_streak_number_var
+        self.__max_streak_number_var: StringVar = StringVar()
+        self.__max_streak_number_var.set(f'{self.__data["max_streak"]}')
+        self.__max_streak_number_lbl: Label = Label(
+            self.__upper_frame, font=("Arial bold", 18), textvariable=self.__max_streak_number_var
         )
-        self.max_streak_text_lbl: Label = Label(self.upper_frame, text="Макс.серия\nпобед")
+        self.__max_streak_text_lbl: Label = Label(self.__upper_frame, text="Макс.серия\nпобед")
 
         # lower frame labels and vars
-        self.lower_head_lbl: Label = Label(self.lower_frame, text="РАСПРЕДЕЛЕНИЕ ПОПЫТОК", font=("Arial bold", 18))
-        self.barchart_canvas: Canvas = self.make_barchart()
+        self.__lower_head_lbl: Label = Label(self.__lower_frame, text="РАСПРЕДЕЛЕНИЕ ПОПЫТОК", font=("Arial bold", 18))
+        self.__barchart_canvas: Canvas = self.__make_barchart()
 
-        self.place_upper_frame_and_labels()
-        self.place_lower_frame_and_labels()
-        self.bind_keys()
+        self.__place_upper_frame_and_labels()
+        self.__place_lower_frame_and_labels()
+        self.__bind_keys()
         self.set_theme()
 
-    def get_data(self) -> dict:
+    def __get_data(self) -> dict:
         raw = self.root.db_handler.get_current_user()
         if not raw:
             raw = ['Dummy', None, 7, 7, 7, 7, 7, 1, 2, 5, 8, 3, 1]
@@ -969,34 +1028,34 @@ class Statistics(Toplevel):
         else:
             self.__set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR)
 
-    def bind_keys(self):
+    def __bind_keys(self):
         self.bind("<Escape>", lambda event: self.destroy())
 
-    def place_upper_frame_and_labels(self):
+    def __place_upper_frame_and_labels(self):
         # 12 columns, 3 rows
-        self.upper_frame.grid(row=0, column=0, padx=10, pady=10)
+        self.__upper_frame.grid(row=0, column=0, padx=10, pady=10)
 
-        self.upper_head_lbl.grid(row=0, column=0, columnspan=12, padx=60, pady=15)
+        self.__upper_head_lbl.grid(row=0, column=0, columnspan=12, padx=60, pady=15)
 
-        self.g_played_number_lbl.grid(row=1, column=0, columnspan=3, padx=10, pady=3)
-        self.g_played_text_lbl.grid(row=2, column=0, columnspan=3, padx=10)
+        self.__g_played_number_lbl.grid(row=1, column=0, columnspan=3, padx=10, pady=3)
+        self.__g_played_text_lbl.grid(row=2, column=0, columnspan=3, padx=10)
 
-        self.winrate_number_lbl.grid(row=1, column=3, columnspan=3, padx=10, pady=3)
-        self.winrate_text_lbl.grid(row=2, column=3, columnspan=3, padx=10)
+        self.__winrate_number_lbl.grid(row=1, column=3, columnspan=3, padx=10, pady=3)
+        self.__winrate_text_lbl.grid(row=2, column=3, columnspan=3, padx=10)
 
-        self.cur_streak_number_lbl.grid(row=1, column=6, columnspan=3, padx=10, pady=3)
-        self.cur_streak_text_lbl.grid(row=2, column=6, columnspan=3, padx=10)
+        self.__cur_streak_number_lbl.grid(row=1, column=6, columnspan=3, padx=10, pady=3)
+        self.__cur_streak_text_lbl.grid(row=2, column=6, columnspan=3, padx=10)
 
-        self.max_streak_number_lbl.grid(row=1, column=9, columnspan=3, padx=10, pady=3)
-        self.max_streak_text_lbl.grid(row=2, column=9, columnspan=3, padx=10)
+        self.__max_streak_number_lbl.grid(row=1, column=9, columnspan=3, padx=10, pady=3)
+        self.__max_streak_text_lbl.grid(row=2, column=9, columnspan=3, padx=10)
 
-    def place_lower_frame_and_labels(self):
-        self.lower_frame.grid(row=1, column=0, padx=10, pady=10)
-        self.lower_frame.grid_columnconfigure(0, weight=1)
-        self.lower_head_lbl.grid(row=0, padx=10, pady=10)
-        self.barchart_canvas.grid(row=1)
+    def __place_lower_frame_and_labels(self):
+        self.__lower_frame.grid(row=1, column=0, padx=10, pady=10)
+        self.__lower_frame.grid_columnconfigure(0, weight=1)
+        self.__lower_head_lbl.grid(row=0, padx=10, pady=10)
+        self.__barchart_canvas.grid(row=1)
 
-    def make_barchart(self) -> Canvas:
+    def __make_barchart(self) -> Canvas:
         # checking current theme
         dark = self.root.get_current_theme()
         if dark:
@@ -1013,15 +1072,15 @@ class Statistics(Toplevel):
         figure.patch.set_facecolor(bg)
 
         # the FigureCanvasTkAgg connects the Figure object with a Tkinter’s Canvas object
-        figure_canvas = FigureCanvasTkAgg(figure, self.lower_frame)
+        figure_canvas = FigureCanvasTkAgg(figure, self.__lower_frame)
 
         # adding a subplot to the figure and returning the axes of the subplot
         axes = figure.add_subplot()
 
         # data for bars
         attempts = [i for i in range(1, 7)]
-        scores = [self.data["first_try"], self.data["second_try"], self.data["third_try"],
-                  self.data["fourth_try"], self.data["fifth_try"], self.data["sixth_try"]]
+        scores = [self.__data["first_try"], self.__data["second_try"], self.__data["third_try"],
+                  self.__data["fourth_try"], self.__data["fifth_try"], self.__data["sixth_try"]]
 
         bars = axes.barh(attempts, scores, color=bbc)
 
@@ -1039,8 +1098,6 @@ class Statistics(Toplevel):
 
         axes.set_yticks(attempts)
         axes.tick_params(labelcolor=txt)
-        for item in bars:
-            print(item)
 
         # put values on the right of the bars
         for bar in bars:
@@ -1054,25 +1111,26 @@ class Statistics(Toplevel):
     def __set_theme(self, bg_color: str, txt_color: str):
         self.config(bg=bg_color)
 
-        self.upper_frame.config(bg=bg_color)
-        self.lower_frame.config(bg=bg_color)
+        self.__upper_frame.config(bg=bg_color)
+        self.__lower_frame.config(bg=bg_color)
 
-        self.upper_head_lbl.config(bg=bg_color, fg=txt_color)
-        self.lower_head_lbl.config(bg=bg_color, fg=txt_color)
+        self.__upper_head_lbl.config(bg=bg_color, fg=txt_color)
+        self.__lower_head_lbl.config(bg=bg_color, fg=txt_color)
 
-        self.g_played_number_lbl.config(bg=bg_color, fg=txt_color)
-        self.g_played_text_lbl.config(bg=bg_color, fg=txt_color)
-        self.winrate_number_lbl.config(bg=bg_color, fg=txt_color)
-        self.winrate_text_lbl.config(bg=bg_color, fg=txt_color)
-        self.cur_streak_number_lbl.config(bg=bg_color, fg=txt_color)
-        self.cur_streak_text_lbl.config(bg=bg_color, fg=txt_color)
-        self.max_streak_number_lbl.config(bg=bg_color, fg=txt_color)
-        self.max_streak_text_lbl.config(bg=bg_color, fg=txt_color)
+        self.__g_played_number_lbl.config(bg=bg_color, fg=txt_color)
+        self.__g_played_text_lbl.config(bg=bg_color, fg=txt_color)
+        self.__winrate_number_lbl.config(bg=bg_color, fg=txt_color)
+        self.__winrate_text_lbl.config(bg=bg_color, fg=txt_color)
+        self.__cur_streak_number_lbl.config(bg=bg_color, fg=txt_color)
+        self.__cur_streak_text_lbl.config(bg=bg_color, fg=txt_color)
+        self.__max_streak_number_lbl.config(bg=bg_color, fg=txt_color)
+        self.__max_streak_text_lbl.config(bg=bg_color, fg=txt_color)
 
-        self.barchart_canvas.config(bg=bg_color)
+        self.__barchart_canvas.config(bg=bg_color)
 
 
 class Settings(Toplevel):
+    """Settings window"""
     def __init__(self, width: int, length: int, root: Optional[Wordle] = None):
         super().__init__(root)
         self.root: Optional[Wordle] = root
@@ -1088,53 +1146,54 @@ class Settings(Toplevel):
         self.BASE_LETTERS_COLOR: str = 'black'
         self.DT_LETTERS_COLOR: str = 'grey'
 
-        self.frame: Frame = Frame(self)
+        self.__frame: Frame = Frame(self)
 
-        self.autosave_button = Checkbutton(
-            self.frame, text="Автосохранение", font=("Arial bold", 15), command=self.switch_autosave
+        self.__autosave_button = Checkbutton(
+            self.__frame, text="Автосохранение", font=("Arial bold", 15), command=self.__switch_autosave
         )
 
-        if self.root.autosave:
-            self.autosave_button.select()
+        if self.root.get_autosave_opt():
+            self.__autosave_button.select()
 
-        self.dark_theme_button = Checkbutton(
-            self.frame, text="Темный режим", font=("Arial bold", 15), command=self.switch_theme
+        self.__dark_theme_button = Checkbutton(
+            self.__frame, text="Темный режим", font=("Arial bold", 15), command=self.__switch_theme
         )
 
-        self.place()
-        self.bind_keys()
-        self.__set_theme()
+        self.__place()
+        self.__bind_keys()
+        self.set_theme()
 
-    def switch_autosave(self):
+    def __switch_autosave(self):
         self.root.change_autosave()
 
-    def __set_theme(self):
+    def set_theme(self):
         dark = self.root.get_current_theme()
         if dark:
-            self.set_theme(self.DT_BASE_COLOR, self.DT_LETTERS_COLOR)
+            self.__set_theme(self.DT_BASE_COLOR, self.DT_LETTERS_COLOR)
         else:
-            self.set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR)
+            self.__set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR)
 
-    def switch_theme(self):
+    def __switch_theme(self):
         self.root.change_color_theme()
-        self.__set_theme()
+        self.set_theme()
 
-    def bind_keys(self):
+    def __bind_keys(self):
         self.bind("<Escape>", lambda event: self.destroy())
 
-    def place(self):
-        self.frame.grid(padx=10, pady=10)
-        self.dark_theme_button.grid(row=0, sticky="W")
-        self.autosave_button.grid(row=1, sticky="W")
+    def __place(self):
+        self.__frame.grid(padx=10, pady=10)
+        self.__dark_theme_button.grid(row=0, sticky="W")
+        self.__autosave_button.grid(row=1, sticky="W")
 
-    def set_theme(self, bg_color: str, txt_color: str):
+    def __set_theme(self, bg_color: str, txt_color: str):
         self.config(bg=bg_color)
-        self.frame.config(bg=bg_color)
-        self.dark_theme_button.config(bg=bg_color, activebackground=bg_color, fg=txt_color)
-        self.autosave_button.config(bg=bg_color, activebackground=bg_color, fg=txt_color)
+        self.__frame.config(bg=bg_color)
+        self.__dark_theme_button.config(bg=bg_color, activebackground=bg_color, fg=txt_color)
+        self.__autosave_button.config(bg=bg_color, activebackground=bg_color, fg=txt_color)
 
 
 class Profiles(Toplevel):
+    """Profiles window"""
     def __init__(self, width: int, length: int, root: Optional[Wordle] = None):
         super().__init__(root)
         self.root: Optional[Wordle] = root
@@ -1158,50 +1217,53 @@ class Profiles(Toplevel):
 
         self.CURRENT_PROFILE: str = '#5EA83D'
 
-        self.frame: Frame = Frame(self)
-        self.btn_frame: Frame = Frame(self.frame)
-        self.btn_frame.grid_columnconfigure(0, weight=1)
-        self.btn_frame.grid_columnconfigure(1, weight=4)
-        self.btn_frame.grid_columnconfigure(2, weight=1)
+        self.__frame: Frame = Frame(self)
+        self.__btn_frame: Frame = Frame(self.__frame)
+        self.__btn_frame.grid_columnconfigure(0, weight=1)
+        self.__btn_frame.grid_columnconfigure(1, weight=4)
+        self.__btn_frame.grid_columnconfigure(2, weight=1)
 
-        self.head_label: Label = Label(self.frame, text="ПРОФИЛИ", font=("Arial bold", 20))
+        self.__head_label: Label = Label(self.__frame, text="ПРОФИЛИ", font=("Arial bold", 20))
 
-        self.profiles_canvas: Canvas = Canvas(self.frame, width=300, height=200)
+        self.__profiles_canvas: Canvas = Canvas(self.__frame, width=300, height=200)
 
-        self.prof_scrollbar: Scrollbar = Scrollbar(
-            self.frame, orient=c.VERTICAL, command=self.profiles_canvas.yview
+        self.__prof_scrollbar: Scrollbar = Scrollbar(
+            self.__frame, orient=VERTICAL, command=self.__profiles_canvas.yview
         )
 
         # bind canvas and scroll bar together
-        self.profiles_canvas.config(yscrollcommand=self.prof_scrollbar.set)
-        self.profiles_canvas.bind(
-            "<Configure>", lambda event: self.profiles_canvas.configure(scrollregion=self.profiles_canvas.bbox("all"))
+        self.__profiles_canvas.config(yscrollcommand=self.__prof_scrollbar.set)
+        self.__profiles_canvas.bind(
+            "<Configure>", lambda event: self.__profiles_canvas.configure(
+                scrollregion=self.__profiles_canvas.bbox("all")
+            )
         )
 
         # set and bind a container for canvas to put shit inside it
-        self.canvas_frame: Frame = Frame(self.profiles_canvas)
-        self.canvas_frame_id: int = self.profiles_canvas.create_window((0, 0), window=self.canvas_frame, anchor="nw")
+        self.__canvas_frame: Frame = Frame(self.__profiles_canvas)
+        self.__canvas_frame_id: int = self.__profiles_canvas.create_window(
+            (0, 0), window=self.__canvas_frame, anchor="nw"
+        )
 
-        self.p_add_button: Button = Button(self.btn_frame, text="Создать", command=self.add_profile)
+        self.__p_add_button: Button = Button(self.__btn_frame, text="Создать", command=self.__add_profile)
 
         self.update_profiles()
 
-        self.place()
-        self.__set_theme()
+        self.__place()
+        self.set_theme()
 
-    def chose_(self, p_name):
+    def __choose(self, p_name: str):
+        """Mark provided username as current in db"""
         current = self.root.get_current_user()
         if current:
             self.root.db_handler.unset_current_user(current)
 
         self.root.db_handler.set_current_user(p_name)
 
-        # TODO
-        # mb not needed at all
-        self.root.set_current_profile(p_name)
         self.update_profiles()
 
-    def delete_(self, p_name):
+    def __delete(self, p_name: str):
+        """Delete provided username from db"""
         really = askokcancel(
             title="Confirmation",
             message=f"Вы точно хотите удалить пользователя {p_name}?",
@@ -1212,14 +1274,17 @@ class Profiles(Toplevel):
             self.root.db_handler.delete_user(p_name)
             self.update_profiles()
 
-    def clear_canvas(self):
-        for item in self.canvas_frame.winfo_children():
-            self.canvas_frame.nametowidget(item).destroy()
+    def __clear_canvas(self):
+        for item in self.__canvas_frame.winfo_children():
+            self.__canvas_frame.nametowidget(item).destroy()
 
     def update_profiles(self):
-        self.clear_canvas()
+        """Updates profile canvas: clear->fill in with updated data"""
+        # clear canvas
+        self.__clear_canvas()
         current = self.root.get_current_user()
 
+        # get and apply current theme
         dark = self.root.get_current_theme()
         if dark:
             lbl_color = self.DT_LBL_COLOR
@@ -1230,66 +1295,68 @@ class Profiles(Toplevel):
             btn_color = self.BASE_BTN_COLOR
             txt_color = self.BASE_LETTERS_COLOR
 
-        p = self.get_profiles()
+        # fill canvas with profiles
+        p = self.__get_profiles()
         for i, profile in enumerate(p):
             if profile == current:
                 Label(
-                    self.canvas_frame, name=f"label{i}", text=profile, bg=self.CURRENT_PROFILE, fg=txt_color
+                    self.__canvas_frame, name=f"label{i}", text=profile, bg=self.CURRENT_PROFILE, fg=txt_color
                 ).grid(row=i, column=0, columnspan=2, pady=5, sticky="W")
             else:
                 Label(
-                    self.canvas_frame, name=f"label{i}", text=profile, bg=lbl_color, fg=txt_color
+                    self.__canvas_frame, name=f"label{i}", text=profile, bg=lbl_color, fg=txt_color
                 ).grid(row=i, column=0, columnspan=2, pady=5, sticky="W")
 
             Button(
-                self.canvas_frame, name=f"btn_ch{i}", text="Выбрать", command=lambda a=profile: self.chose_(a),
+                self.__canvas_frame, name=f"btn_ch{i}", text="Выбрать", command=lambda a=profile: self.__choose(a),
                 bg=btn_color, fg=txt_color
             ).grid(row=i, column=2, pady=5, padx=50, sticky="E")
 
             Button(
-                self.canvas_frame, name=f"btn_del{i}", text="Удалить", command=lambda a=profile: self.delete_(a),
+                self.__canvas_frame, name=f"btn_del{i}", text="Удалить", command=lambda a=profile: self.__delete(a),
                 bg=btn_color, fg=txt_color
             ).grid(row=i, column=3, pady=5, sticky="E")
 
-    def add_profile(self):
+    def __add_profile(self):
+        """Create new window to add new profile"""
         width, length = 300, 80
         p_window = ProfileGetterWindow(width, length, self)
         self.root.center_window(p_window, width, length)
 
         p_window.grab_set()
 
-    def get_profiles(self):
+    def __get_profiles(self) -> list[str]:
         users_raw = self.root.db_handler.get_users()
         users = [item[1] for item in users_raw]
-
         return users
 
-    def place(self):
-        self.frame.grid(padx=10, pady=10)
-        self.head_label.grid(row=0, column=0, padx=10, pady=10)
-        self.profiles_canvas.grid(row=1, column=0)
-        self.prof_scrollbar.grid(row=1, column=1, sticky="NS")
-        self.btn_frame.grid(row=2, sticky='EW')
-        self.p_add_button.grid(row=0, column=0, pady=10, sticky="W")
+    def __place(self):
+        self.__frame.grid(padx=10, pady=10)
+        self.__head_label.grid(row=0, column=0, padx=10, pady=10)
+        self.__profiles_canvas.grid(row=1, column=0)
+        self.__prof_scrollbar.grid(row=1, column=1, sticky="NS")
+        self.__btn_frame.grid(row=2, sticky='EW')
+        self.__p_add_button.grid(row=0, column=0, pady=10, sticky="W")
 
-    def __set_theme(self):
+    def set_theme(self):
         dark = self.root.get_current_theme()
         if dark:
-            self.set_theme(self.DT_BASE_COLOR, self.DT_LETTERS_COLOR, self.DT_LBL_COLOR, self.DT_BTN_COLOR)
+            self.__set_theme(self.DT_BASE_COLOR, self.DT_LETTERS_COLOR, self.DT_LBL_COLOR, self.DT_BTN_COLOR)
         else:
-            self.set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR, self.BASE_LBL_COLOR, self.BASE_BTN_COLOR)
+            self.__set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR, self.BASE_LBL_COLOR, self.BASE_BTN_COLOR)
 
-    def set_theme(self, bg_color: str, txt_color: str, lbl_color: str, btn_color: str):
+    def __set_theme(self, bg_color: str, txt_color: str, lbl_color: str, btn_color: str):
         self.config(bg=bg_color)
-        self.frame.config(bg=bg_color)
-        self.btn_frame.config(bg=bg_color)
-        self.profiles_canvas.config(bg=bg_color)
-        self.canvas_frame.config(bg=bg_color)
-        self.head_label.config(bg=lbl_color, fg=txt_color)
-        self.p_add_button.config(bg=btn_color, fg=txt_color)
+        self.__frame.config(bg=bg_color)
+        self.__btn_frame.config(bg=bg_color)
+        self.__profiles_canvas.config(bg=bg_color)
+        self.__canvas_frame.config(bg=bg_color)
+        self.__head_label.config(bg=lbl_color, fg=txt_color)
+        self.__p_add_button.config(bg=btn_color, fg=txt_color)
 
 
 class ProfileGetterWindow(Toplevel):
+    """Window for getting new profile"""
     def __init__(self, width: int, length: int, root):
         super().__init__(root)
         self.root = root
@@ -1317,17 +1384,17 @@ class ProfileGetterWindow(Toplevel):
         self.DT_BTN_COLOR: str = 'grey'
 
         # init shit
-        self.label = Label(self, text="Имя профиля:", font=("Arial", 11))
-        self.ok_btn = Button(self, text="Ок", command=self.add_profile)
-        self.cancel_btn = Button(self, text="Отмена", command=self.on_closing)
-        self.entry = Entry(self, width=30)
-        self.place()
+        self.__label = Label(self, text="Имя профиля:", font=("Arial", 11))
+        self.__ok_btn = Button(self, text="Ок", command=self.__add_profile)
+        self.__cancel_btn = Button(self, text="Отмена", command=self.__on_closing)
+        self.__entry = Entry(self, width=30)
+        self.__place()
 
-        self.__set_theme()
-        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.set_theme()
+        self.protocol("WM_DELETE_WINDOW", self.__on_closing)
 
-    def add_profile(self):
-        user_name = self.entry.get()
+    def __add_profile(self):
+        user_name = self.__entry.get()
         if len(user_name) > self.MAX_NICK_LENGTH:
             showinfo(title='Too many characters', message='Слишком длинное имя профиля')
             return
@@ -1340,39 +1407,39 @@ class ProfileGetterWindow(Toplevel):
         if not ok:
             showinfo(title='Profile duplicate', message='Профиль с таким именем уже существует!')
 
-        self.on_closing()
+        self.__on_closing()
 
-    def on_closing(self):
+    def __on_closing(self):
         self.root.grab_set()
         self.root.update_profiles()
         self.destroy()
 
-    def place(self):
-        self.label.grid(row=0, column=0, padx=5, pady=10)
-        self.ok_btn.grid(row=1, column=0, ipadx=3, ipady=3)
-        self.cancel_btn.grid(row=1, column=1, ipadx=3, ipady=3)
-        self.entry.grid(row=0, column=1, padx=5, pady=10)
+    def __place(self):
+        self.__label.grid(row=0, column=0, padx=5, pady=10)
+        self.__ok_btn.grid(row=1, column=0, ipadx=3, ipady=3)
+        self.__cancel_btn.grid(row=1, column=1, ipadx=3, ipady=3)
+        self.__entry.grid(row=0, column=1, padx=5, pady=10)
 
-    def __set_theme(self):
+    def set_theme(self):
         dark = self.root.root.get_current_theme()
         if dark:
-            self.set_theme(self.DT_BASE_COLOR, self.DT_LETTERS_COLOR, self.DT_LBL_COLOR, self.DT_BTN_COLOR)
+            self.__set_theme(self.DT_BASE_COLOR, self.DT_LETTERS_COLOR, self.DT_LBL_COLOR, self.DT_BTN_COLOR)
         else:
-            self.set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR, self.BASE_LBL_COLOR, self.BASE_BTN_COLOR)
+            self.__set_theme(self.BASE_COLOR, self.BASE_LETTERS_COLOR, self.BASE_LBL_COLOR, self.BASE_BTN_COLOR)
 
-    def set_theme(self, bg_color: str, txt_color: str, lbl_color: str, btn_color: str):
+    def __set_theme(self, bg_color: str, txt_color: str, lbl_color: str, btn_color: str):
         self.config(bg=bg_color)
-        self.label.config(bg=lbl_color, fg=txt_color)
-        self.ok_btn.config(bg=btn_color, fg=txt_color)
-        self.cancel_btn.config(bg=btn_color, fg=txt_color)
-        self.entry.config(bg=lbl_color, fg=txt_color)
+        self.__label.config(bg=lbl_color, fg=txt_color)
+        self.__ok_btn.config(bg=btn_color, fg=txt_color)
+        self.__cancel_btn.config(bg=btn_color, fg=txt_color)
+        self.__entry.config(bg=lbl_color, fg=txt_color)
 
 
 class OkCancelWindow(Toplevel):
     # askokcancel func brings in strange bug
     # of keyboard keybindings stop working for some reason
-    # until you perform some action in OS
-    def __init__(self, width: int, length: int, root):
+    # until some action in OS is performed
+    def __init__(self, width: int, length: int, root: Wordle):
         super().__init__(root)
         self.root = root
         self.title("Загрузка")
@@ -1381,17 +1448,17 @@ class OkCancelWindow(Toplevel):
 
         self.grid_columnconfigure(1, weight=1)
 
-        self.lbl = Label(self, text="Загрузить последнюю игру?", font=("Arial bold", 12))
-        self.ok_btn = Button(self, text="Ок", command=self.ok)
-        self.cancel_btn = Button(self, text="Отмена", command=self.destroy)
+        self.__lbl = Label(self, text="Загрузить последнюю игру?", font=("Arial bold", 12))
+        self.__ok_btn = Button(self, text="Ок", command=self.__ok)
+        self.__cancel_btn = Button(self, text="Отмена", command=self.destroy)
 
-        self.lbl.grid(row=0, column=0, columnspan=3, sticky="NSEW", pady=20)
-        self.ok_btn.grid(row=1, column=0, sticky="W", ipadx=20, padx=10)
-        self.cancel_btn.grid(row=1, column=2, sticky="E", ipadx=10, padx=10)
+        self.__lbl.grid(row=0, column=0, columnspan=3, sticky="NSEW", pady=20)
+        self.__ok_btn.grid(row=1, column=0, sticky="W", ipadx=20, padx=10)
+        self.__cancel_btn.grid(row=1, column=2, sticky="E", ipadx=10, padx=10)
 
         self.protocol("WM_DELETE_WINDOW", self.destroy)
 
-    def ok(self):
+    def __ok(self):
         self.root.init_game_data()
         self.destroy()
 
