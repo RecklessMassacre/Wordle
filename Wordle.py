@@ -259,7 +259,7 @@ class DBHandler:
         self.__conn.close()
 
 
-class Wordle(Tk):
+class _Wordle(Tk):
     """Wordle game itself. Contains all the logic"""
     # architecture is shit
     def __init__(self, db_name: str):
@@ -362,13 +362,6 @@ class Wordle(Tk):
         self.__window_length: int = 820
         self.__root_setup()
 
-        # placing everything
-        self.__place_frames()
-        self.__place_labels()
-        self.__place_buttons()
-
-        self.__ask_load_game()
-
         self.protocol("WM_DELETE_WINDOW", self.__on_closing)
 
     def __ask_load_game(self):
@@ -378,7 +371,7 @@ class Wordle(Tk):
 
     def __create_ask_load_window(self):
         width, length = 300, 100
-        oc_window = OkCancelWindow(width, length, self)
+        oc_window = _OkCancelWindow(width, length, self)
         self.center_window(oc_window, width, length)
 
         # lock root window and put it behind new one
@@ -626,7 +619,7 @@ class Wordle(Tk):
     # have several distinct funcs, one for each window, even though they are similar
     def __show_profile(self):
         width, length = 400, 500
-        p_window = Profiles(width, length, self)
+        p_window = _Profiles(width, length, self)
         self.center_window(p_window, width, length)
 
         # lock root window
@@ -634,7 +627,7 @@ class Wordle(Tk):
 
     def __show_settings(self):
         width, length = 400, 300
-        set_window = Settings(width, length, self)
+        set_window = _Settings(width, length, self)
         self.center_window(set_window, width, length)
 
         # lock root window
@@ -642,7 +635,7 @@ class Wordle(Tk):
 
     def __show_stats(self):
         width, length = 400, 500
-        st_window = Statistics(width, length, self)
+        st_window = _Statistics(width, length, self)
         self.center_window(st_window, width, length)
 
         # lock root window
@@ -927,15 +920,20 @@ class Wordle(Tk):
         self.__game_flag = False
 
     def run(self):
-        """Run app"""
+        """Start mainloop and places everything"""
+        self.__place_frames()
+        self.__place_labels()
+        self.__place_buttons()
+
+        self.__ask_load_game()
         self.mainloop()
 
 
-class Statistics(Toplevel):
+class _Statistics(Toplevel):
     """Statistics window"""
-    def __init__(self, width: int, length: int, root: Wordle):
+    def __init__(self, width: int, length: int, root: _Wordle):
         super().__init__(root)
-        self.root: Wordle = root
+        self.root: _Wordle = root
         self.title("Статистика")
         self.grid_columnconfigure(0, weight=1)
         self.minsize(width=width, height=length)
@@ -1129,11 +1127,11 @@ class Statistics(Toplevel):
         self.__barchart_canvas.config(bg=bg_color)
 
 
-class Settings(Toplevel):
+class _Settings(Toplevel):
     """Settings window"""
-    def __init__(self, width: int, length: int, root: Optional[Wordle] = None):
+    def __init__(self, width: int, length: int, root: Optional[_Wordle] = None):
         super().__init__(root)
-        self.root: Optional[Wordle] = root
+        self.root: Optional[_Wordle] = root
         self.title("Настройки")
         self.minsize(width=width, height=length)
         self.resizable(False, False)
@@ -1192,11 +1190,11 @@ class Settings(Toplevel):
         self.__autosave_button.config(bg=bg_color, activebackground=bg_color, fg=txt_color)
 
 
-class Profiles(Toplevel):
+class _Profiles(Toplevel):
     """Profiles window"""
-    def __init__(self, width: int, length: int, root: Optional[Wordle] = None):
+    def __init__(self, width: int, length: int, root: Optional[_Wordle] = None):
         super().__init__(root)
-        self.root: Optional[Wordle] = root
+        self.root: Optional[_Wordle] = root
         self.title("Профили")
         self.minsize(width=width, height=length)
         self.resizable(False, False)
@@ -1320,7 +1318,7 @@ class Profiles(Toplevel):
     def __add_profile(self):
         """Create new window to add new profile"""
         width, length = 300, 80
-        p_window = ProfileGetterWindow(width, length, self)
+        p_window = _ProfileGetterWindow(width, length, self)
         self.root.center_window(p_window, width, length)
 
         p_window.grab_set()
@@ -1355,7 +1353,7 @@ class Profiles(Toplevel):
         self.__p_add_button.config(bg=btn_color, fg=txt_color)
 
 
-class ProfileGetterWindow(Toplevel):
+class _ProfileGetterWindow(Toplevel):
     """Window for getting new profile"""
     def __init__(self, width: int, length: int, root):
         super().__init__(root)
@@ -1435,11 +1433,11 @@ class ProfileGetterWindow(Toplevel):
         self.__entry.config(bg=lbl_color, fg=txt_color)
 
 
-class OkCancelWindow(Toplevel):
+class _OkCancelWindow(Toplevel):
     # askokcancel func brings in strange bug
     # of keyboard keybindings stop working for some reason
     # until some action in OS is performed
-    def __init__(self, width: int, length: int, root: Wordle):
+    def __init__(self, width: int, length: int, root: _Wordle):
         super().__init__(root)
         self.root = root
         self.title("Загрузка")
@@ -1463,10 +1461,14 @@ class OkCancelWindow(Toplevel):
         self.destroy()
 
 
-def main():
-    game = Wordle("data.db")
-    game.run()
+class WordleGame:
+    """Wordle game
 
+    Use .run() to run the game
+    """
+    def __init__(self):
+        self.__db_name = "data.db"
+        self.__wordle = _Wordle(self.__db_name)
 
-if __name__ == "__main__":
-    main()
+    def run(self):
+        self.__wordle.run()
