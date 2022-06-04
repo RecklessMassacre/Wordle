@@ -41,6 +41,7 @@ class DBHandler:
             ) for i in range(1, 7)
         ]
 
+    # asd
     def __check_db_init(self) -> bool:
         """Checks if db is initialized"""
         self.__cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user'")
